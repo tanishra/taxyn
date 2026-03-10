@@ -105,20 +105,29 @@ graph LR
 ## Quick Start
 
 ```bash
-# 1. Install dependencies
+# 1. Clone the repository
+git clone https://github.com/tanishra/taxyn.git
+cd taxyn
+
+# 2. Install dependencies
 pip install -r requirements.txt
 
-# 2. Configure environment
+# 3. Configure environment
 cp .env.example .env
 # Add your OPENAI_API_KEY and DATABASE_URL (optional)
 
-# 3. Run Backend
+# 4. Run Backend
 python main.py
 
-# 4. Run Frontend
+# 5. Choose your Interface:
+
+# Option A: Modern Dashboard (Next.js)
 cd frontend
 npm install
 npm run dev
+
+# Option B: Simple Interface (Streamlit)
+streamlit run app.py
 ```
 
 ---
