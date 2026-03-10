@@ -1,0 +1,46 @@
+# ─── Python / Backend ──────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+
+# ─── Node.js / Frontend ────────────────────────────────────
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/.vercel/
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# ─── Databases ─────────────────────────────────────────────
+*.db
+*.sqlite3
+
+# ─── Environment & Secrets ────────────────────────────────
+.env
+.env.local
+token.json
+
+# ─── System / IDE ──────────────────────────────────────────
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.bak
+*.tmp
+
+# ─── Project Specific ──────────────────────────────────────
+sample_invoice.pdf
+*.log
+tests

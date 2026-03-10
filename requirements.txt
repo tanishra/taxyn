@@ -1,0 +1,37 @@
+# ─── Web Framework ────────────────────────────────────────
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+
+# ─── AI / LLM ─────────────────────────────────────────────
+anthropic==0.34.0
+instructor==1.4.3          # Structured outputs from LLM (Pydantic-validated)
+litellm==1.44.0            # Model-agnostic LLM switching (OpenAI / Anthropic / Gemini)
+
+# ─── Document Extraction ──────────────────────────────────
+docling==2.5.0             # IBM: PDF → clean structured text (best for tables/invoices)
+markitdown==0.0.1a3        # Microsoft: multi-format → Markdown fallback
+
+# ─── Data Validation & Typing ─────────────────────────────
+pydantic==2.8.2
+pydantic-settings==2.4.0
+
+# ─── Database / Memory ────────────────────────────────────
+sqlalchemy==2.0.35
+asyncpg==0.29.0            # Async Postgres driver
+redis==5.0.8               # Cache + HITL queue
+
+# ─── Auth & Security ──────────────────────────────────────
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# ─── Observability ────────────────────────────────────────
+structlog==24.4.0          # Structured JSON logging
+opentelemetry-api==1.27.0
+opentelemetry-sdk==1.27.0
+
+# ─── Utilities ────────────────────────────────────────────
+python-dotenv==1.0.1
+httpx==0.27.2
+tenacity==9.0.0            # Retry logic
+ulid-py==1.1.0             # Unique request IDs
