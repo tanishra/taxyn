@@ -1,103 +1,56 @@
 "use client";
 
-import { motion } from "framer-motion";
+import React from "react";
 import { Navbar } from "@/components/Navbar";
 import { Uploader } from "@/components/Uploader";
-import { Sparkles, Shield, Zap, CheckCircle } from "lucide-react";
-import "./ui.css";
+import { motion } from "framer-motion";
+import { ShieldCheck, Zap, Database, CheckCircle, ArrowRight } from "lucide-react";
+import { useAuth } from "@/components/AuthContext";
+import Link from "next/link";
 
 export default function Home() {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) return null;
+
   return (
     <main>
       <Navbar />
       
-      <section className="hero">
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="badge glass"
-        >
-          <Sparkles size={14} color="var(--primary)" />
-          <span>AI-Powered Indian Compliance</span>
+      {/* ALWAYS SHOW HERO SECTION */}
+      <div className="hero" style={{ minHeight: "auto", paddingTop: "10rem", paddingBottom: "2rem" }}>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="badge glass">
+          <Zap size={14} /> AI-Powered Compliance Automation
         </motion.div>
+        
+        <h1 className="hero-title">
+          Your Digital <span className="text-gradient">Financial Auditor</span>
+        </h1>
+        <p className="hero-subtitle">
+          Extract, validate, and reconcile Indian tax documents with 99% accuracy using autonomous AI agents.
+        </p>
 
-        <motion.h1 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="hero-title"
-        >
-          Automate Your <span className="text-gradient">Tax Compliance</span> Workflow
-        </motion.h1>
-
-        <motion.p 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="hero-subtitle"
-        >
-          Extract structured data from Invoices, GST Returns, and Bank Statements with 99% accuracy and built-in Indian compliance validation.
-        </motion.p>
-
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="cta-group"
-        >
-          <button className="btn btn-primary">
-            Start Free Trial
-          </button>
-          <button className="btn btn-secondary">
-            View Documentation
-          </button>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5 }}
-          style={{ display: "flex", gap: "3rem", marginBottom: "4rem" }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "rgba(255,255,255,0.4)" }}>
-            <Shield size={18} /> Secure & Encrypted
+        {!user && (
+          <div className="cta-group">
+            <Link href="/auth/signup" className="btn btn-primary">Start Auditing Now <ArrowRight size={18} /></Link>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "rgba(255,255,255,0.4)" }}>
-            <Zap size={18} /> 30x Faster than OCR
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "rgba(255,255,255,0.4)" }}>
-            <CheckCircle size={18} /> 99.9% Extraction Accuracy
-          </div>
-        </motion.div>
+        )}
+      </div>
 
+      {/* ALWAYS SHOW UPLOADER (LOGIN GUARD HANDLED INSIDE) */}
+      <div style={{ display: "flex", justifyContent: "center", paddingBottom: "8rem" }}>
         <Uploader />
-      </section>
+      </div>
 
-      {/* Decorative background elements */}
-      <div style={{
-        position: "fixed",
-        top: "10%",
-        right: "5%",
-        width: "300px",
-        height: "300px",
-        background: "var(--primary)",
-        filter: "blur(150px)",
-        opacity: 0.1,
-        zIndex: -1,
-        borderRadius: "50%"
-      }} />
-      <div style={{
-        position: "fixed",
-        bottom: "10%",
-        left: "5%",
-        width: "400px",
-        height: "400px",
-        background: "var(--secondary)",
-        filter: "blur(180px)",
-        opacity: 0.08,
-        zIndex: -1,
-        borderRadius: "50%"
-      }} />
+      {!user && (
+        <div className="hero" style={{ minHeight: "auto", paddingBottom: "8rem" }}>
+          <div style={{ display: "flex", gap: "3rem", opacity: 0.6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}><CheckCircle size={18} /> GSTR-2A Matching</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}><CheckCircle size={18} /> Bank Scrutiny</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}><CheckCircle size={18} /> Vendor Memory</div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

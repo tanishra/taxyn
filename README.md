@@ -14,7 +14,7 @@
 <br/>
 
 > **Upload a PDF invoice, GST return, bank statement, or TDS certificate.**
-> **Taxyn extracts structured data, validates Indian compliance rules, and flags anomalies — automatically.**
+> **Taxyn extracts structured data, validates Indian compliance rules, and reconciles against portal data — automatically.**
 
 <br/>
 
@@ -24,13 +24,13 @@
 
 ## What It Does
 
-Taxyn is an AI agent pipeline that processes Indian financial documents end-to-end:
+Taxyn is an AI-powered platform that automates Indian financial document audits:
 
-1. **Extracts** raw text from PDF using Docling (tables preserved, 30x faster than OCR)
-2. **Parses** structured fields using LLM + Instructor (typed Pydantic output, no JSON errors)
-3. **Validates** Indian compliance rules deterministically — GST rates, GSTIN format, PAN format, date checks
-4. **Scores** confidence per field — below 85% threshold → routed to human review
-5. **Returns** clean structured JSON or queues for HITL review
+1. **Secure Identity:** Email verification (OTP) and Google Auth ensure data isolation per user.
+2. **Deep Extraction:** Pulls multi-line tables from PDFs using IBM Docling (30x faster than traditional OCR).
+3. **Smart Reconciliation:** Matches physical invoices against actual Government GSTR-2A portal Excel files to find missing tax credits.
+4. **Deterministic Audit:** Hardcoded validation for GSTIN, PAN, and tax math to eliminate AI hallucinations.
+5. **Continuous Learning:** Remembers every human correction, improving vendor-specific accuracy over time.
 
 ---
 
@@ -39,65 +39,45 @@ Taxyn is an AI agent pipeline that processes Indian financial documents end-to-e
 ```mermaid
 graph LR
     A["REST Client"] --> G1
-    B["Webhook"] --> G1
+    B["Google Auth"] --> G1
 
-    subgraph GATEWAY["API GATEWAY"]
-        G1["Auth + RateLimit + Router"]
+    subgraph GATEWAY["SECURE GATEWAY"]
+        G1["JWT Auth + OTP Verification"]
     end
 
     subgraph AGENT["AGENT LAYER"]
-        AL["AgentLoop\nStateless Orchestrator"]
-        CO["ContextObject\nImmutable Data"]
-        PL["Planner\nSkill Selector"]
+        AL["AgentLoop\nUser-Isolated Orchestrator"]
+        CO["ContextObject\nMetadata + Multi-Tenant ID"]
+        PL["Planner\nSpecialist Selector"]
     end
 
     subgraph SKILLS["SKILLS"]
         S1["InvoiceSkill"]
         S2["GSTSkill"]
         S3["BankSkill"]
-        S4["TDSSkill"]
+        S4["ReconciliationSkill"]
     end
 
     subgraph TOOLS["TOOLS"]
         T1["ExtractorTool\nDocling"]
         T2["ParserTool\nGPT-4o + Instructor"]
-        T3["ValidatorTool\nDeterministic"]
-        T4["ConfidenceScorerTool"]
+        T3["ValidatorTool\nDeterministic Compliance"]
+        T4["PortalParser\nPandas Excel Engine"]
     end
 
-    subgraph MEMORY["STORAGE LAYER"]
-        M1["SchemaStore"]
-        M2["CorrectionStore"]
-        M3["AuditStore"]
-        M4[("SQL Persistence\nPostgres/SQLite")]
-    end
-
-    subgraph OUTPUT["OUTPUT"]
-        O1["ResponseSerializer"]
-        O2["HITLQueue\nHuman Review"]
-        O3["Tracer"]
+    subgraph MEMORY["PERSISTENCE (Postgres)"]
+        M1["UserStore\nAccounts + Profiles"]
+        M2["AuditStore\nFull Document History"]
+        M3["CorrectionStore\nVendor Learning Flywheel"]
+        M4["DocumentStore\nSource PDF Persistence"]
     end
 
     G1 --> AL
     AL --> CO --> PL
-
-    PL --> S1
-    PL --> S2
-    PL --> S3
-    PL --> S4
-
-    S1 --> T1
-    S2 --> T1
-    S3 --> T1
-    S4 --> T1
-
-    T1 --> T2 --> T3 --> T4
-
-    T4 -->|"confidence >= 0.85"| O1
-    T4 -->|"confidence < 0.85"| O2
-
+    PL --> S1 & S2 & S3 & S4
+    S1 & S2 & S3 & S4 --> T1 --> T2 --> T3
+    S4 --> T4
     MEMORY --> AL
-    AL --> O3 --> M3
 ```
 
 ---
@@ -105,28 +85,25 @@ graph LR
 ## Quick Start
 
 ```bash
-# 1. Clone the repository
+# 1. Clone & Setup
 git clone https://github.com/tanishra/taxyn.git
 cd taxyn
-
-# 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Configure environment
-cp .env.example .env
-# Add your OPENAI_API_KEY and DATABASE_URL (optional)
+# 2. Configure Environment
+# Add DATABASE_URL, OPENAI_API_KEY, and SMTP settings for OTP to .env
 
-# 4. Run Backend
+# 3. Run Backend
 python main.py
 
-# 5. Choose your Interface:
+# 4. Choose your Interface:
 
-# Option A: Modern Dashboard (Next.js)
+# Option A: Modern SaaS Dashboard (Next.js)
 cd frontend
 npm install
 npm run dev
 
-# Option B: Simple Interface (Streamlit)
+# Option B: Simple Utility (Streamlit)
 streamlit run app.py
 ```
 
@@ -134,28 +111,37 @@ streamlit run app.py
 
 ## Key Features
 
-- **Deterministic Validation:** 100% code-based verification for GSTIN, PAN, and Indian Tax rates. No AI "hallucinations."
-- **Side-by-Side Correction:** Professional human review interface with source PDF and editable fields for low-confidence data.
-- **Resilient Storage:** Cascading fallback system (PostgreSQL → SQLite → In-Memory) ensuring 100% uptime.
-- **Data Flywheel:** Learns from every human correction, improving vendor-specific accuracy over time.
-- **Table Preservation:** Powered by IBM Docling to ensure complex financial tables are extracted perfectly.
+- **GSTR-2A Portal Sync:** Upload actual government Excel files to find missing Input Tax Credit (ITC) instantly.
+- **Side-by-Side Verification:** Professional UI to verify AI extractions against the source PDF in real-time.
+- **Enterprise Persistence:** All documents, audits, and profiles are stored in high-performance PostgreSQL.
+- **Vendor Memory:** System learns from your corrections once and applies them to all future documents from that vendor.
+- **SaaS Identity:** Full account management with profile sections for Company Name and GSTIN.
 
 ---
 
 ## Supported Documents
 
-Taxyn is pre-configured to understand the specific layouts of Indian financial documents:
+Taxyn is specialized for the unique layouts of Indian compliance documentation:
 
-- **Invoices:** Handles B2B and B2C invoices with multi-line item extraction.
-- **GST Returns:** Parses GSTR-1, GSTR-3B, and GSTR-2A/2B summaries.
-- **Bank Statements:** Processes PDF ledgers from all major Indian banks.
-- **TDS Certificates:** Extracts Form 16/16A data for tax reconciliation.
+- **Invoices:** B2B and B2C invoices with multi-line item table extraction.
+- **Bank Statements:** Full ledger processing from all major Indian banks (SBI, HDFC, ICICI, etc.).
+- **GST Returns:** Parses GSTR-1, GSTR-3B, and portal summaries for audit.
+- **TDS Certificates:** Automated reconciliation of Form 16/16A data.
 
 ---
 
 ## Roadmap & Contributions
 
-- **Smart Features:** Building auto-matching for GST data and fraud detection.
-- **Easy Sync:** Connecting Taxyn directly to WhatsApp, Tally, and Zoho.
-- **Wider Reach:** Adding support for regional languages and a mobile app.
+- **Bulk Ingestion:** Background batch processing for thousands of documents.
+- **Direct ERP Sync:** One-click data push to Tally Prime and Zoho Books.
+- **Risk Scoring:** Automated vendor fraud detection based on GST registration status.
+- **Mobile App:** Rapid capture of physical bills via smartphone camera.
 - **Contribute:** PRs welcome! Help us make Taxyn better.
+
+---
+
+<div align="center">
+
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0f0c29&height=100&section=footer" width="100%"/>
+
+</div>

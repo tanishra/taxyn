@@ -12,6 +12,7 @@
   --success: #10b981;
   --warning: #f59e0b;
   --error: #ef4444;
+  --muted: rgba(255, 255, 255, 0.5);
 }
 
 * {
@@ -86,4 +87,8 @@ button {
 
 .animate-float {
   animation: float 6s ease-in-out infinite;
+}
+
+.text-vibrant {
+  color: var(--primary);
 }

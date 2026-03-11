@@ -38,12 +38,28 @@ class RestAdapter(ChannelInterface):
         # Load tenant's custom schema from memory
         schema = await self._schema_store.get_schema(tenant_id, doc_type_hint)
 
+        metadata = {}
+        # ── RECONCILIATION: Load stored portal data or use mock for demo ────
+        if doc_type == DocType.RECONCILIATION:
+            stored_portal = await self._schema_store.get_schema(tenant_id, "portal_data")
+            if stored_portal and "records" in stored_portal:
+                logger.info("rest_adapter.using_real_portal_data", count=len(stored_portal["records"]))
+                metadata["portal_data"] = stored_portal["records"]
+            else:
+                logger.warning("rest_adapter.no_portal_data_found_using_mock")
+                metadata["portal_data"] = [
+                    {"invoice_number": "INV-2026-1042", "gstin": "22AAAAA0000A1Z5", "amount": 59000.0},
+                    {"invoice_number": "INV-9999", "gstin": "07AAAAA0000A1Z5", "amount": 1000.0}
+                ]
+        # ────────────────────────────────────────────────────────────────
+
         context = Context(
             tenant_id=tenant_id,
             doc_type=doc_type,
             raw_bytes=raw_bytes,
             filename=file.filename or "document.pdf",
             extraction_schema=schema,
+            metadata=metadata
         )
 
         return context

@@ -23,12 +23,14 @@ class DocType(str, Enum):
     GST_RETURN = "gst_return"
     BANK_STATEMENT = "bank_statement"
     TDS_CERTIFICATE = "tds_certificate"
+    RECONCILIATION = "reconciliation"
     UNKNOWN = "unknown"
 
 
 class ProcessingStatus(str, Enum):
     PENDING = "pending"
     PROCESSING = "processing"
+    RECONCILING = "reconciling"
     COMPLETED = "completed"
     NEEDS_REVIEW = "needs_review"   # Confidence below threshold → HITL
     FAILED = "failed"
@@ -80,6 +82,7 @@ class Context:
     # ── Metadata ───────────────────────────────────────────
     created_at: datetime = field(default_factory=datetime.utcnow)
     processing_time_ms: float = 0.0
+    metadata: dict[str, Any] = field(default_factory=dict) # For portal_data etc.
 
     def add_tool_result(self, result: ToolResult) -> None:
         """Append a tool result to the pipeline trace."""

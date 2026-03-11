@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from typing import Optional
 
 class Settings(BaseSettings):
     APP_NAME: str = "Taxyn"
@@ -17,8 +18,19 @@ class Settings(BaseSettings):
 
     CONFIDENCE_THRESHOLD: float = 0.85
 
+    # ─── Mail Config ───────────────────────────────────────────
+    MAIL_USERNAME: str = ""
+    MAIL_PASSWORD: str = ""
+    MAIL_FROM: str = "noreply@taxyn.ai"
+    MAIL_PORT: int = 587
+    MAIL_SERVER: str = "smtp.gmail.com"
+
+    # ─── Auth Config ───────────────────────────────────────────
+    GOOGLE_CLIENT_ID: str = ""
+
     class Config:
         env_file = ".env"
+        extra = "ignore" # Ignore extra fields in .env instead of crashing
 
 
 settings = Settings()

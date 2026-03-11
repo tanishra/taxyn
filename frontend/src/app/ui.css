@@ -31,7 +31,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 0 20px rgba(129, 140, 248, 0.4);
 }
 
 .nav-links {
@@ -42,7 +42,7 @@
 
 .nav-link {
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--muted);
   transition: color 0.3s ease;
 }
 
@@ -70,6 +70,9 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  background: rgba(129, 140, 248, 0.1);
+  border: 1px solid rgba(129, 140, 248, 0.2);
+  color: var(--primary);
 }
 
 .hero-title {
@@ -82,7 +85,7 @@
 
 .hero-subtitle {
   font-size: clamp(1.125rem, 3vw, 1.25rem);
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--muted);
   max-width: 600px;
   line-height: 1.6;
   margin-bottom: 3rem;
@@ -95,11 +98,11 @@
 }
 
 .btn {
-  padding: 1rem 2rem;
-  border-radius: 1rem;
+  padding: 0.875rem 1.75rem;
+  border-radius: 0.875rem;
   font-weight: 600;
-  font-size: 1rem;
-  transition: all 0.3s ease;
+  font-size: 0.9375rem;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -108,24 +111,24 @@
 .btn-primary {
   background: var(--primary);
   color: #fff;
-  box-shadow: 0 10px 30px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 10px 25px rgba(99, 102, 241, 0.2);
 }
 
 .btn-primary:hover {
   background: var(--primary-glow);
   transform: translateY(-2px);
-  box-shadow: 0 15px 40px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 15px 35px rgba(99, 102, 241, 0.3);
 }
 
 .btn-secondary {
   border: 1px solid var(--glass-border);
-  background: var(--glass);
+  background: rgba(255, 255, 255, 0.03);
   backdrop-filter: blur(12px);
   color: #fff;
 }
 
 .btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.2);
 }
 
@@ -137,7 +140,7 @@
 
 .dropzone {
   width: 100%;
-  min-height: 300px;
+  min-height: 280px;
   border: 2px dashed var(--glass-border);
   border-radius: 2rem;
   display: flex;
@@ -146,17 +149,18 @@
   justify-content: center;
   padding: 3rem;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.4s ease;
   position: relative;
+  background: rgba(255, 255, 255, 0.01);
 }
 
 .dropzone:hover {
   border-color: var(--primary);
-  background: rgba(99, 102, 241, 0.03);
+  background: rgba(129, 140, 248, 0.04);
 }
 
 .dropzone-icon {
-  width: 4rem; height: 4rem; color: var(--primary); margin-bottom: 1.5rem;
+  width: 3.5rem; height: 3.5rem; color: var(--primary); margin-bottom: 1.5rem;
 }
 
 .progress-container {
@@ -167,16 +171,16 @@
 
 .progress-track {
   width: 100%;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
   overflow: hidden;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.75rem;
 }
 
 .progress-bar {
   height: 100%;
-  background: linear-gradient(90deg, var(--primary), var(--secondary));
+  background: linear-gradient(90deg, var(--primary), var(--accent));
   transition: width 0.3s ease;
 }
 
@@ -187,6 +191,7 @@
   padding: 3rem;
   margin-top: 4rem;
   text-align: left;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .result-header {
@@ -200,9 +205,9 @@
 .extraction-table-container {
   width: 100%;
   overflow-x: auto;
-  border-radius: 1.5rem;
+  border-radius: 1.25rem;
   border: 1px solid var(--glass-border);
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(15, 23, 42, 0.3); /* Darker backdrop for table area to improve contrast */
 }
 
 .extraction-table {
@@ -213,11 +218,11 @@
 .extraction-table th {
   text-align: left;
   padding: 1.25rem 1.5rem;
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
   font-size: 0.75rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
   font-weight: 700;
   border-bottom: 1px solid var(--glass-border);
 }
@@ -226,6 +231,7 @@
   padding: 1.25rem 1.5rem;
   border-bottom: 1px solid var(--glass-border);
   font-size: 0.9375rem;
+  vertical-align: top;
 }
 
 .extraction-table tr:last-child td {
@@ -233,7 +239,7 @@
 }
 
 .field-name-cell {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--muted);
   font-weight: 600;
   text-transform: capitalize;
   width: 30%;
@@ -253,8 +259,8 @@
   letter-spacing: 0.05em;
 }
 
-.status-completed { background: rgba(16, 185, 129, 0.1); color: var(--success); }
-.status-review { background: rgba(245, 158, 11, 0.1); color: var(--warning); }
+.status-completed { background: rgba(52, 211, 153, 0.1); color: var(--success); border: 1px solid rgba(52, 211, 153, 0.2); }
+.status-review { background: rgba(251, 191, 36, 0.1); color: var(--warning); border: 1px solid rgba(251, 191, 36, 0.2); }
 
 .confidence-ring {
   position: relative; width: 120px; height: 120px; display: flex; align-items: center; justify-content: center;

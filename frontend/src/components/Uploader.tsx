@@ -5,11 +5,15 @@ import { motion, AnimatePresence } from "framer-motion";
 import { 
   Upload, FileText, CheckCircle2, AlertCircle, 
   Loader2, ArrowRight, ShieldCheck, PieChart, 
-  Clock, FileSearch, Trash2, Download, Edit3
+  Clock, FileSearch, Trash2, Download, Edit3, 
+  RefreshCcw, AlertTriangle, CheckCircle, ChevronDown,
+  Database, LogIn
 } from "lucide-react";
 import axios from "axios";
 import * as XLSX from "xlsx";
 import { ReviewModal } from "./ReviewModal";
+import { useAuth } from "./AuthContext";
+import { useRouter } from "next/navigation";
 
 interface ExtractionResult {
   status: string;
@@ -25,15 +29,20 @@ interface ExtractionResult {
 }
 
 export const Uploader = () => {
+  const { token, user } = useAuth();
+  const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
+  const [portalFile, setPortalFile] = useState<File | null>(null);
+  const [docType, setDocType] = useState("unknown");
   const [isUploading, setIsUploading] = useState(false);
+  const [isPortalUploading, setIsPortalUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<ExtractionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isReviewOpen, setIsReviewOpen] = useState(false);
   const [isResolved, setIsResolved] = useState(false);
 
-  // Simulate progress when uploading
+  // Simulate progress
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (isUploading) {
@@ -56,8 +65,12 @@ export const Uploader = () => {
   };
 
   const handleUpload = async () => {
-    if (!file) return;
+    if (!token || !user) {
+      router.push("/auth/login?error=Please login to process documents");
+      return;
+    }
 
+    if (!file) return;
     setIsUploading(true);
     setError(null);
     setResult(null);
@@ -65,19 +78,41 @@ export const Uploader = () => {
 
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("tenant_id", "demo_user");
-    formData.append("doc_type", "unknown");
+    formData.append("tenant_id", user.id);
+    formData.append("doc_type", docType);
 
     try {
-      const response = await axios.post("http://localhost:8000/api/v1/extract", formData);
+      const response = await axios.post("http://localhost:8000/api/v1/extract", formData, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       setProgress(100);
       setTimeout(() => {
         setResult(response.data);
         setIsUploading(false);
       }, 500);
     } catch (err: any) {
-      setError(err.response?.data?.detail || "Failed to process document. Make sure backend is running on port 8000.");
+      setError("Server Error. Make sure backend is running on port 8000.");
       setIsUploading(false);
+    }
+  };
+
+  const handlePortalUpload = async () => {
+    if (!token) return;
+    if (!portalFile) return;
+    setIsPortalUploading(true);
+    const formData = new FormData();
+    formData.append("file", portalFile);
+
+    try {
+      await axios.post("http://localhost:8000/api/v1/reconcile/upload-portal", formData, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setPortalFile(null);
+      alert("Successfully uploaded Government Portal data!");
+    } catch (err: any) {
+      setError("Failed to upload portal data.");
+    } finally {
+      setIsPortalUploading(false);
     }
   };
 
@@ -91,313 +126,164 @@ export const Uploader = () => {
 
   const getFilteredData = () => {
     const data = result?.extracted_data || result?.partial_data || {};
-    return Object.entries(data).filter(([key]) => !["raw_text", "char_count"].includes(key));
-  };
-
-  const formatValueForExcel = (value: any): string => {
-    if (value === null || value === undefined) return "";
-    if (Array.isArray(value)) {
-      if (value.length === 0) return "";
-      if (typeof value[0] === "object") {
-        // Convert list of objects (like transactions) into a readable multi-line string for the cell
-        return value.map(item => 
-          Object.entries(item)
-            .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`)
-            .join(" | ")
-        ).join("\n");
-      }
-      return value.join(", ");
-    }
-    if (typeof value === "object") return JSON.stringify(value);
-    return String(value);
+    const hideKeys = ["raw_text", "char_count", "recon_results", "portal_data"];
+    return Object.entries(data).filter(([key]) => !hideKeys.includes(key));
   };
 
   const renderValue = (value: any): React.ReactNode => {
-    if (value === null || value === undefined) return <span style={{ color: "rgba(255,255,255,0.2)" }}>null</span>;
-    
-    if (Array.isArray(value)) {
-      if (value.length === 0) return "[]";
-      // If it's an array of objects (like transactions), render a nested table
-      if (typeof value[0] === "object") {
-        const columns = Object.keys(value[0]);
-        return (
-          <div className="extraction-table-container" style={{ margin: "0.5rem 0", background: "rgba(0,0,0,0.2)" }}>
-            <table className="extraction-table" style={{ fontSize: "0.8rem" }}>
-              <thead>
-                <tr>
-                  {columns.map(col => <th key={col}>{col.replace(/_/g, " ")}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {value.map((item, i) => (
-                  <tr key={i}>
-                    {columns.map(col => <td key={col}>{String(item[col] ?? "-")}</td>)}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        );
-      }
-      return value.join(", ");
+    if (value === null || value === undefined) return <span style={{ opacity: 0.3 }}>null</span>;
+    if (Array.isArray(value) && value.length > 0 && typeof value[0] === "object") {
+      const cols = Object.keys(value[0]);
+      return (
+        <div className="extraction-table-container" style={{ margin: "0.5rem 0", background: "rgba(0,0,0,0.2)" }}>
+          <table className="extraction-table" style={{ fontSize: "0.75rem" }}>
+            <thead><tr>{cols.map(c => <th key={c}>{c.replace(/_/g, " ")}</th>)}</tr></thead>
+            <tbody>{value.map((item, i) => <tr key={i}>{cols.map(c => <td key={c}>{renderValue(item[c])}</td>)}</tr>)}</tbody>
+          </table>
+        </div>
+      );
     }
-
-    if (typeof value === "object") {
-      return JSON.stringify(value);
+    if (typeof value === "object" && !Array.isArray(value)) {
+      return (
+        <div className="extraction-table-container" style={{ margin: "0.5rem 0", background: "rgba(0,0,0,0.1)", border: "1px solid rgba(255,255,255,0.05)" }}>
+          <table className="extraction-table" style={{ fontSize: "0.75rem" }}>
+            <tbody>{Object.entries(value).map(([k, v]) => <tr key={k}><td style={{ fontWeight: 700, width: "30%" }}>{k.replace(/_/g, " ")}</td><td>{renderValue(v)}</td></tr>)}</tbody>
+          </table>
+        </div>
+      );
     }
-
     return String(value);
   };
 
   const downloadExcel = () => {
     if (!result) return;
-    
-    // Format data for Excel
-    const data = getFilteredData().map(([key, value]) => ({
-      "Field Name": key.replace(/_/g, " ").toUpperCase(),
-      "Extracted Value": formatValueForExcel(value)
-    }));
-
-    // Create worksheet
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    
-    // Adjust column widths
-    const maxWidth = data.reduce((w, r) => Math.max(w, r["Field Name"].length), 15);
-    worksheet["!cols"] = [{ wch: maxWidth }, { wch: 30 }];
-
-    // Create workbook and append sheet
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Extraction Results");
-
-    // Save file
-    const fileName = result.filename ? `${result.filename.split('.')[0]}_extraction.xlsx` : "taxyn_extraction.xlsx";
-    XLSX.writeFile(workbook, fileName);
+    const ws = XLSX.utils.json_to_sheet(getFilteredData());
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Results");
+    XLSX.writeFile(wb, `${result.filename}_extraction.xlsx`);
   };
+
+  const reconData = result?.extracted_data?.recon_results;
 
   return (
     <div className="uploader-container">
       <AnimatePresence mode="wait">
         {!result ? (
-          <motion.div
-            key="upload"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-          >
-            <div 
-              className="dropzone glass glass-hover"
-              onClick={() => !isUploading && document.getElementById("fileInput")?.click()}
-              style={{ cursor: isUploading ? "default" : "pointer" }}
-            >
-              <input 
-                type="file" 
-                id="fileInput" 
-                hidden 
-                accept=".pdf"
-                onChange={onFileChange} 
-                disabled={isUploading}
-              />
-              
-              <div className="dropzone-icon">
-                {isUploading ? (
-                  <Loader2 className="animate-spin" size={64} />
-                ) : (
-                  <Upload size={64} />
-                )}
+          <motion.div key="upload" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}>
+            
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "1.5rem", gap: "1rem", alignItems: "center" }}>
+              <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
+                <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--muted)", textTransform: "uppercase" }}>Select Mode:</span>
+                <div style={{ position: "relative" }}>
+                  <select 
+                    value={docType} 
+                    onChange={(e) => setDocType(e.target.value)}
+                    style={{ 
+                      appearance: "none", padding: "0.5rem 2.5rem 0.5rem 1rem", 
+                      background: "var(--glass)", border: "1px solid var(--glass-border)",
+                      borderRadius: "0.75rem", color: "#fff", fontWeight: 600, outline: "none", cursor: "pointer"
+                    }}
+                  >
+                    <option value="unknown">Auto-Detect</option>
+                    <option value="invoice">Invoice</option>
+                    <option value="bank_statement">Bank Statement</option>
+                    <option value="reconciliation">GSTR-2A Reconciliation</option>
+                  </select>
+                  <ChevronDown size={14} style={{ position: "absolute", right: "1rem", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", opacity: 0.5 }} />
+                </div>
               </div>
+
+              {docType === "reconciliation" && user && (
+                <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                  <input type="file" id="portalInput" hidden accept=".xlsx,.xls" onChange={(e) => e.target.files && setPortalFile(e.target.files[0])} />
+                  <button 
+                    className="btn btn-secondary" 
+                    style={{ padding: "0.5rem 1rem", fontSize: "0.8rem" }}
+                    onClick={() => portalFile ? handlePortalUpload() : document.getElementById("portalInput")?.click()}
+                    disabled={isPortalUploading}
+                  >
+                    {isPortalUploading ? <Loader2 size={14} className="animate-spin" /> : <Database size={14} />}
+                    {portalFile ? `Upload ${portalFile.name}` : "Sync Portal Excel"}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="dropzone glass glass-hover" onClick={() => !isUploading && document.getElementById("fileInput")?.click()} style={{ cursor: isUploading ? "default" : "pointer" }}>
+              <input type="file" id="fileInput" hidden accept=".pdf" onChange={onFileChange} disabled={isUploading} />
+              <div className="dropzone-icon">{isUploading ? <Loader2 className="animate-spin" size={64} /> : <Upload size={64} />}</div>
 
               {isUploading ? (
                 <div className="progress-container">
-                  <h3 style={{ marginBottom: "1rem" }}>Analyzing Document...</h3>
-                  <div className="progress-track">
-                    <motion.div 
-                      className="progress-bar" 
-                      animate={{ width: `${progress}%` }}
-                      transition={{ type: "spring", stiffness: 50 }}
-                    />
-                  </div>
-                  <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.875rem" }}>
-                    {progress < 40 ? "Extracting Text..." : progress < 80 ? "Parsing Fields..." : "Validating Compliance..."}
-                  </p>
+                  <h3 style={{ marginBottom: "1rem" }}>Processing...</h3>
+                  <div className="progress-track"><motion.div className="progress-bar" animate={{ width: `${progress}%` }} transition={{ type: "spring", stiffness: 50 }} /></div>
+                  <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.875rem" }}>{progress < 40 ? "Extracting..." : progress < 80 ? "Analyzing..." : "Finalizing..."}</p>
                 </div>
               ) : (
                 <div style={{ textAlign: "center" }}>
-                  <h3 style={{ marginBottom: "0.5rem" }}>{file ? file.name : "Upload your document"}</h3>
-                  <p style={{ color: "rgba(255,255,255,0.5)" }}>
-                    {file ? `${(file.size / 1024 / 1024).toFixed(2)} MB • PDF` : "Drag and drop or click to browse"}
-                  </p>
+                  <h3 style={{ marginBottom: "0.5rem" }}>{file ? file.name : "Upload Document"}</h3>
+                  <p style={{ color: "rgba(255,255,255,0.5)" }}>{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB • PDF` : "Drag and drop or click to browse"}</p>
                 </div>
               )}
 
               {file && !isUploading && (
-                <motion.button
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="btn btn-primary"
-                  style={{ marginTop: "2rem" }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleUpload();
-                  }}
+                <motion.button 
+                  initial={{ opacity: 0, y: 10 }} 
+                  animate={{ opacity: 1, y: 0 }} 
+                  className={`btn ${user ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ marginTop: "2rem" }} 
+                  onClick={(e) => { e.stopPropagation(); handleUpload(); }}
                 >
-                  Start Extraction <ArrowRight size={18} />
+                  {!user && <LogIn size={18} />}
+                  {user ? "Analyze Now" : "Sign In to Analyze"} 
+                  <ArrowRight size={18} />
                 </motion.button>
               )}
             </div>
-
-            {error && (
-              <motion.div 
-                initial={{ opacity: 0 }} 
-                animate={{ opacity: 1 }}
-                style={{ 
-                  marginTop: "1.5rem", 
-                  color: "var(--error)", 
-                  display: "flex", 
-                  alignItems: "center", 
-                  gap: "0.5rem",
-                  justifyContent: "center"
-                }}
-              >
-                <AlertCircle size={18} /> {error}
-              </motion.div>
-            )}
           </motion.div>
         ) : (
-          <motion.div
-            key="result"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="result-card glass"
-          >
+          <motion.div key="result" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="result-card glass">
+            
             <div className="result-header">
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "0.5rem" }}>
-                  <h2 className="text-gradient" style={{ fontSize: "2rem" }}>
-                    {isResolved ? "Correction Complete" : result.status === "completed" ? "Extraction Complete" : "Review Required"}
-                  </h2>
-                  <span className={`status-badge ${isResolved || result.status === "completed" ? "status-completed" : "status-review"}`}>
-                    {isResolved ? "resolved" : result.status.replace("_", " ")}
-                  </span>
+                  <h2 className="text-gradient" style={{ fontSize: "2rem" }}>Result</h2>
+                  <span className={`status-badge ${isResolved || result.status === "completed" ? "status-completed" : "status-review"}`}>{isResolved ? "resolved" : result.status.replace("_", " ")}</span>
                 </div>
-                <p style={{ color: "rgba(255,255,255,0.5)" }}>
-                  {result.filename} • {result.doc_type}
-                </p>
+                <p style={{ color: "rgba(255,255,255,0.5)" }}>{result.filename}</p>
               </div>
-              
               <div className="confidence-ring">
-                <svg width="120" height="120" viewBox="0 0 120 120">
-                  <circle
-                    cx="60" cy="60" r="54"
-                    fill="none"
-                    stroke="rgba(255,255,255,0.1)"
-                    strokeWidth="8"
-                  />
-                  <motion.circle
-                    cx="60" cy="60" r="54"
-                    fill="none"
-                    stroke={isResolved || result.confidence > 0.85 ? "var(--success)" : "var(--warning)"}
-                    strokeWidth="8"
-                    strokeDasharray="339.292"
-                    initial={{ strokeDashoffset: 339.292 }}
-                    animate={{ strokeDashoffset: 339.292 * (1 - (isResolved ? 1.0 : result.confidence)) }}
-                    transition={{ duration: 1.5, ease: "easeOut" }}
-                    strokeLinecap="round"
-                  />
-                </svg>
-                <div style={{ position: "absolute", textAlign: "center" }}>
-                  <div style={{ fontSize: "1.5rem", fontWeight: 800 }}>
-                    {( (isResolved ? 1.0 : result.confidence) * 100).toFixed(0)}%
-                  </div>
-                  <div style={{ fontSize: "0.6rem", textTransform: "uppercase", color: "rgba(255,255,255,0.4)" }}>
-                    Confidence
-                  </div>
-                </div>
+                <div style={{ fontSize: "1.5rem", fontWeight: 800 }}>{( (isResolved ? 1.0 : result.confidence) * 100).toFixed(0)}%</div>
               </div>
             </div>
 
-            <div className="extraction-table-container">
-              <table className="extraction-table">
-                <thead>
-                  <tr>
-                    <th>Field Name</th>
-                    <th>Extracted Value</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {getFilteredData().map(([key, value], idx) => (
-                    <motion.tr 
-                      key={key}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: idx * 0.05 }}
-                    >
-                      <td className="field-name-cell">{key.replace(/_/g, " ")}</td>
-                      <td className="field-value-cell">{renderValue(value)}</td>
-                    </motion.tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {result.compliance_flags?.length > 0 && !isResolved && (
-              <div style={{ marginTop: "3rem" }}>
-                <h4 style={{ marginBottom: "1rem", display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--warning)" }}>
-                  <AlertCircle size={18} /> Compliance Flags
-                </h4>
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                  {result.compliance_flags.map((flag, idx) => (
-                    <motion.div 
-                      key={idx}
-                      initial={{ x: -20, opacity: 0 }}
-                      animate={{ x: 0, opacity: 1 }}
-                      transition={{ delay: 0.3 + (idx * 0.1) }}
-                      style={{ 
-                        padding: "1rem", 
-                        borderRadius: "1rem", 
-                        background: "rgba(245, 158, 11, 0.05)", 
-                        border: "1px solid rgba(245, 158, 11, 0.2)",
-                        fontSize: "0.9rem"
-                      }}
-                    >
-                      {flag}
-                    </motion.div>
-                  ))}
+            {reconData && (
+              <div style={{ padding: "1.5rem", borderRadius: "1rem", marginBottom: "2rem", border: "1px solid var(--primary)", background: "rgba(99, 102, 241, 0.05)" }}>
+                <h3 style={{ fontWeight: 700, marginBottom: "1rem" }}>Portal Reconciliation</h3>
+                <div style={{ display: "flex", gap: "2rem" }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: "0.7rem", opacity: 0.5 }}>STATUS</div>
+                    <div style={{ fontWeight: 800, color: reconData.is_matched ? "var(--success)" : "var(--warning)" }}>{reconData.status}</div>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: "0.7rem", opacity: 0.5 }}>DIFFERENCE</div>
+                    <div style={{ fontWeight: 800 }}>₹{reconData.diff.toLocaleString()}</div>
+                  </div>
                 </div>
               </div>
             )}
 
-            <div style={{ marginTop: "3rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ display: "flex", gap: "1rem" }}>
-                {!isResolved && result.status !== "completed" && (
-                  <button className="btn btn-primary" onClick={() => setIsReviewOpen(true)}>
-                    <Edit3 size={18} /> Review & Correct
-                  </button>
-                )}
-                <button className="btn btn-secondary" onClick={downloadExcel}>
-                  <Download size={18} /> Download Excel
-                </button>
-                <button className="btn btn-secondary" onClick={reset}>
-                  <Trash2 size={18} /> Process Another
-                </button>
-              </div>
-
-              <div style={{ display: "flex", gap: "2rem" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "rgba(255,255,255,0.4)", fontSize: "0.8rem" }}>
-                  <Clock size={14} /> {(result.processing_time_ms || 0).toFixed(0)}ms
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "rgba(255,255,255,0.4)", fontSize: "0.8rem" }}>
-                  <FileSearch size={14} /> ID: {result.request_id.slice(0, 8)}
-                </div>
-              </div>
+            <div className="extraction-table-container">
+              <table className="extraction-table">
+                <thead><tr><th>Field</th><th>Value</th></tr></thead>
+                <tbody>{getFilteredData().map(([k, v]) => <tr key={k}><td className="field-name-cell">{k.replace(/_/g, " ")}</td><td className="field-value-cell">{renderValue(v)}</td></tr>)}</tbody>
+              </table>
             </div>
 
-            <ReviewModal 
-              isOpen={isReviewOpen} 
-              onClose={() => setIsReviewOpen(false)}
-              data={result.extracted_data || result.partial_data}
-              requestId={result.request_id}
-              onResolved={() => setIsResolved(true)}
-            />
+            <div style={{ marginTop: "3rem", display: "flex", gap: "1rem" }}>
+              <button className="btn btn-secondary" onClick={downloadExcel}><Download size={18} /> Excel</button>
+              <button className="btn btn-secondary" onClick={reset}><Trash2 size={18} /> New</button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

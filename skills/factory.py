@@ -48,6 +48,10 @@ class SkillFactory:
             from skills.other_skills import TDSSkill
             return TDSSkill()
 
+        elif doc_type == DocType.RECONCILIATION:
+            from skills.reconciliation_skill import ReconciliationSkill
+            return ReconciliationSkill()
+
         else:
             # Default to invoice for unknown types
             logger.warning("skill_factory.unknown_type_fallback", doc_type=doc_type)

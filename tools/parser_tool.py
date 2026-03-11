@@ -148,6 +148,7 @@ Be conservative with confidence scores."""
             "gst_return": ["gstin", "period", "total_taxable_value", "igst", "cgst", "sgst"],
             "bank_statement": ["account_number", "period", "opening_balance", "closing_balance", "transactions"],
             "tds_certificate": ["pan", "deductor_name", "amount_paid", "tds_deducted", "period"],
+            "reconciliation": ["invoice_number", "vendor_gstin", "amount", "date", "vendor_name"]
         }
         key = str(doc_type).split(".")[-1].lower()
         return defaults.get(key, ["amount", "date", "reference_number"])
