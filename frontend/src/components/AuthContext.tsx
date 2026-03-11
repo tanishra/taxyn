@@ -17,6 +17,7 @@ interface AuthContextType {
   token: string | null;
   login: (token: string) => void;
   logout: () => void;
+  refreshProfile: () => Promise<void>;
   isLoading: boolean;
 }
 
@@ -65,8 +66,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     router.push("/auth/login");
   };
 
+  const refreshProfile = async () => {
+    if (!token) return;
+    await fetchProfile(token);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, token, login, logout, refreshProfile, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

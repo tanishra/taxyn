@@ -263,5 +263,30 @@
 .status-review { background: rgba(251, 191, 36, 0.1); color: var(--warning); border: 1px solid rgba(251, 191, 36, 0.2); }
 
 .confidence-ring {
-  position: relative; width: 120px; height: 120px; display: flex; align-items: center; justify-content: center;
+  --confidence: 0;
+  position: relative;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: conic-gradient(
+    var(--primary) calc(var(--confidence) * 1%),
+    rgba(255, 255, 255, 0.08) 0
+  );
+}
+
+.confidence-ring::before {
+  content: "";
+  position: absolute;
+  inset: 10px;
+  border-radius: 50%;
+  background: var(--background);
+  border: 1px solid var(--glass-border);
+}
+
+.confidence-ring > div {
+  position: relative;
+  z-index: 1;
 }

@@ -147,7 +147,15 @@ class SQLRepository(MemoryRepositoryInterface):
                 .order_by(StoreItem.updated_at.desc())
                 .limit(limit)
             )
-            return [item.value for item in result.scalars().all()]
+            rows = []
+            for item in result.scalars().all():
+                value = dict(item.value or {})
+                if "created_at" not in value and item.updated_at:
+                    value["created_at"] = item.updated_at.isoformat()
+                if "confidence" not in value and "overall_confidence" in value:
+                    value["confidence"] = value.get("overall_confidence", 0.0)
+                rows.append(value)
+            return rows
 
 
 # ─────────────────────────────────────────────────────────────

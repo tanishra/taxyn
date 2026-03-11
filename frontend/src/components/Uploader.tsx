@@ -173,9 +173,106 @@ export const Uploader = () => {
 
   const downloadExcel = () => {
     if (!result) return;
-    const ws = XLSX.utils.json_to_sheet(getFilteredData());
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Results");
+    const hideKeys = ["raw_text", "char_count", "recon_results", "portal_data"];
+    const filteredEntries = Object.entries(result.extracted_data || {}).filter(([key]) => !hideKeys.includes(key));
+
+    const toDisplayValue = (value: unknown): string | number | boolean => {
+      if (value === null || value === undefined) return "";
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
+      return JSON.stringify(value);
+    };
+
+    const safeSheetName = (name: string): string =>
+      name.replace(/[\\/*?:[\]]/g, "_").slice(0, 31) || "Sheet";
+
+    const overviewRows: Array<Record<string, string | number | boolean>> = [];
+    for (const [field, value] of filteredEntries) {
+      const sheetName = safeSheetName(field);
+      if (Array.isArray(value)) {
+        if (field === "transactions" && value.length > 0 && typeof value[0] === "object" && value[0] !== null) {
+          for (const tx of value as Record<string, unknown>[]) {
+            overviewRows.push({
+              Field: "transactions",
+              Value: "",
+              Details: "",
+              Date: toDisplayValue(tx.date),
+              Description: toDisplayValue(tx.description),
+              Debit: toDisplayValue(tx.debit),
+              Credit: toDisplayValue(tx.credit),
+              Balance: toDisplayValue(tx.balance),
+            });
+          }
+          continue;
+        }
+
+        const rowCount = value.length;
+        overviewRows.push({ Field: field, Value: `See sheet: ${sheetName}`, Details: `${rowCount} rows` });
+        for (let i = 0; i < value.length; i += 1) {
+          const rowValue = value[i];
+          overviewRows.push({
+            Field: `${field}[${i + 1}]`,
+            Value: toDisplayValue(rowValue),
+            Details: "",
+          });
+        }
+        continue;
+      }
+
+      if (typeof value === "object" && value !== null) {
+        const keyCount = Object.keys(value as Record<string, unknown>).length;
+        overviewRows.push({ Field: field, Value: `See sheet: ${sheetName}`, Details: `${keyCount} fields` });
+        for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+          overviewRows.push({
+            Field: `${field}.${k}`,
+            Value: toDisplayValue(v),
+            Details: "",
+          });
+        }
+        continue;
+      }
+
+      overviewRows.push({ Field: field, Value: toDisplayValue(value), Details: "" });
+    }
+    const overviewWs = XLSX.utils.json_to_sheet(overviewRows);
+    XLSX.utils.book_append_sheet(wb, overviewWs, "Overview");
+
+    for (const [field, value] of filteredEntries) {
+      const sheetName = safeSheetName(field);
+
+      if (Array.isArray(value)) {
+        if (value.length === 0) continue;
+        if (typeof value[0] === "object" && value[0] !== null) {
+          const normalizedRows = (value as Record<string, unknown>[]).map((row) => {
+            const normalized: Record<string, string | number | boolean> = {};
+            for (const [k, v] of Object.entries(row)) {
+              normalized[k] = toDisplayValue(v);
+            }
+            return normalized;
+          });
+          const ws = XLSX.utils.json_to_sheet(normalizedRows);
+          XLSX.utils.book_append_sheet(wb, ws, sheetName);
+          continue;
+        }
+
+        const ws = XLSX.utils.json_to_sheet(
+          (value as unknown[]).map((v) => ({ value: toDisplayValue(v) }))
+        );
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+        continue;
+      }
+
+      if (typeof value === "object" && value !== null) {
+        const ws = XLSX.utils.json_to_sheet(
+          Object.entries(value as Record<string, unknown>).map(([k, v]) => ({
+            field: k,
+            value: toDisplayValue(v),
+          }))
+        );
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      }
+    }
+
     XLSX.writeFile(wb, `${result.filename}_extraction.xlsx`);
   };
 
@@ -187,6 +284,8 @@ export const Uploader = () => {
     "status" in rawReconData &&
     "diff" in rawReconData
   ) ? (rawReconData as ReconciliationResult) : null;
+  const confidencePercent = (isResolved ? 1.0 : result?.confidence || 0) * 100;
+  const confidenceRingStyle = { "--confidence": confidencePercent } as React.CSSProperties;
 
   return (
     <div className="uploader-container">
@@ -275,8 +374,11 @@ export const Uploader = () => {
                 </div>
                 <p style={{ color: "rgba(255,255,255,0.5)" }}>{result.filename}</p>
               </div>
-              <div className="confidence-ring">
-                <div style={{ fontSize: "1.5rem", fontWeight: 800 }}>{( (isResolved ? 1.0 : result.confidence) * 100).toFixed(0)}%</div>
+              <div
+                className="confidence-ring"
+                style={confidenceRingStyle}
+              >
+                <div style={{ fontSize: "1.5rem", fontWeight: 800 }}>{confidencePercent.toFixed(0)}%</div>
               </div>
             </div>
 

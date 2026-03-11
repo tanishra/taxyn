@@ -100,7 +100,10 @@ class Context:
             "doc_type": self.doc_type,
             "filename": self.filename,
             "status": self.status,
+            "created_at": self.created_at.isoformat(),
+            "confidence": self.overall_confidence,
             "overall_confidence": self.overall_confidence,
+            "extracted_data": self.extracted_data,
             "compliance_flags": self.compliance_flags,
             "tool_results": [
                 {

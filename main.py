@@ -16,6 +16,7 @@ from typing import Optional
 # ── Core Components ────────────────────────────────────────
 from agent.loop import AgentLoop
 from agent.planner import Planner
+from agent.context import Context, DocType
 from skills.factory import SkillFactory
 from memory.stores import SQLRepository, InMemoryRepository, SchemaStore, CorrectionStore, AuditStore, DocumentStore, UserStore, User
 from output.serializer import ResponseSerializer
@@ -191,16 +192,79 @@ async def update_profile(
     gstin: Optional[str] = Form(None),
     user: User = Depends(get_current_user)
 ):
-    if full_name: user.full_name = full_name
-    if company_name: user.company_name = company_name
-    if gstin: user.gstin = gstin
+    if full_name is not None:
+        user.full_name = full_name
+    if company_name is not None:
+        user.company_name = company_name
+    if gstin is not None:
+        user.gstin = gstin
     
     await container.user_store.create_user(user) # merge update
-    return {"status": "success", "message": "Profile updated"}
+    return {
+        "status": "success",
+        "message": "Profile updated",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "company_name": user.company_name,
+            "gstin": user.gstin,
+        },
+    }
 
 @auth_router.get("/history")
 async def get_history(user: User = Depends(get_current_user)):
     return await container.audit_store.get_history(user.id)
+
+@auth_router.get("/history/{request_id}")
+async def get_history_item(request_id: str, user: User = Depends(get_current_user)):
+    trace = await container.audit_store.get(user.id, request_id)
+    if not trace:
+        raise HTTPException(status_code=404, detail="History item not found")
+
+    # Backward-compatible result extraction from stored trace
+    extracted_data = trace.get("extracted_data") or {}
+    if not extracted_data:
+        for tool_result in trace.get("tool_results", []):
+            if tool_result.get("tool") == "parser_tool":
+                parser_fields = tool_result.get("data", {}).get("fields", {})
+                if isinstance(parser_fields, dict):
+                    extracted_data = parser_fields
+                break
+    
+    # Backfill for older traces that did not persist extracted_data/tool payloads.
+    if not extracted_data:
+        try:
+            content = await container.document_store.get(request_id)
+            if content:
+                doc_type_raw = str(trace.get("doc_type", "unknown")).replace("DocType.", "").lower()
+                doc_type = DocType(doc_type_raw) if doc_type_raw in DocType._value2member_map_ else DocType.UNKNOWN
+                schema = await container.schema_store.get_schema(user.id, doc_type_raw)
+
+                replay_context = Context(
+                    request_id=request_id,
+                    tenant_id=user.id,
+                    doc_type=doc_type,
+                    raw_bytes=content,
+                    filename=trace.get("filename", "document.pdf"),
+                    extraction_schema=schema,
+                )
+                skill = await container.agent_loop._planner.plan(replay_context)
+                await skill.run(replay_context)
+                extracted_data = replay_context.extracted_data or {}
+        except Exception as e:
+            logger.error("history_item.backfill_failed", request_id=request_id, error=str(e))
+
+    return {
+        "request_id": trace.get("request_id", request_id),
+        "filename": trace.get("filename", "document.pdf"),
+        "doc_type": str(trace.get("doc_type", "unknown")).replace("DocType.", "").lower(),
+        "status": trace.get("status", "completed"),
+        "confidence": trace.get("confidence", trace.get("overall_confidence", 0.0)),
+        "created_at": trace.get("created_at"),
+        "compliance_flags": trace.get("compliance_flags", []),
+        "extracted_data": extracted_data,
+    }
 
 # ── DOMAIN ROUTES ─────────────────────────────────────────
 

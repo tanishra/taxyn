@@ -8,7 +8,7 @@ import { useAuth } from "@/components/AuthContext";
 import axios from "axios";
 
 export default function ProfilePage() {
-  const { user, token, isLoading: authLoading } = useAuth();
+  const { user, token, refreshProfile, isLoading: authLoading } = useAuth();
   const [fullName, setFullName] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [gstin, setGstin] = useState("");
@@ -37,8 +37,8 @@ export default function ProfilePage() {
       await axios.put("http://localhost:8000/api/v1/auth/profile", formData, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      await refreshProfile();
       setMessage("Profile updated successfully!");
-      // In a real app, you'd refresh the user context here
     } catch (_err) {
       setMessage("Failed to update profile.");
     } finally {
