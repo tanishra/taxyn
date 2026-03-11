@@ -20,8 +20,8 @@ export const metadata: Metadata = {
   description: "Extract structured data from Invoices, GST Returns, and Bank Statements with 99% accuracy.",
 };
 
-// Replace with your actual Client ID in .env later
-const GOOGLE_CLIENT_ID = "YOUR_GOOGLE_CLIENT_ID_GOES_HERE";
+// Load from environment variable (ensure it starts with NEXT_PUBLIC_ in your frontend/.env)
+const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
 
 export default function RootLayout({
   children,

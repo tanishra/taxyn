@@ -128,18 +128,26 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 @auth_router.post("/google")
 async def google_login(token: str = Form(...)):
     """
-    Verify Google ID Token and login/signup user.
+    Fetch user info from Google using Access Token and login/signup.
     """
-    from google.oauth2 import id_token
-    from google.auth.transport import requests
-
+    import httpx
+    
     try:
-        # Verify the token with Google
-        idinfo = id_token.verify_oauth2_token(token, requests.Request(), settings.GOOGLE_CLIENT_ID)
+        # 1. Use the Access Token to fetch user profile from Google
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            
+            if response.status_code != 200:
+                logger.error("google_auth.request_failed", status=response.status_code)
+                raise HTTPException(status_code=400, detail="Failed to fetch Google user info")
+            
+            idinfo = response.json()
         
         email = idinfo['email']
         full_name = idinfo.get('name', 'Google User')
-        google_id = idinfo['sub']
 
         # Check if user exists
         user = await container.user_store.get_by_email(email)
