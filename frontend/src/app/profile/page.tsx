@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { User, Building2, Fingerprint, Save, ShieldCheck, Mail, CheckCircle2 } from "lucide-react";
+import { User, Building2, Fingerprint, Save, Mail, CheckCircle2, AlertCircle } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { useAuth } from "@/components/AuthContext";
 import axios from "axios";
@@ -39,7 +39,7 @@ export default function ProfilePage() {
       });
       setMessage("Profile updated successfully!");
       // In a real app, you'd refresh the user context here
-    } catch (err) {
+    } catch (_err) {
       setMessage("Failed to update profile.");
     } finally {
       setIsSaving(false);

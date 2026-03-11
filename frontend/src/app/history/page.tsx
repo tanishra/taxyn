@@ -8,9 +8,18 @@ import { useAuth } from "@/components/AuthContext";
 import axios from "axios";
 import Link from "next/link";
 
+interface HistoryItem {
+  request_id: string;
+  filename: string;
+  doc_type: string;
+  created_at?: string;
+  status: string;
+  confidence?: number;
+}
+
 export default function HistoryPage() {
   const { token, user, isLoading: authLoading } = useAuth();
-  const [history, setHistory] = useState([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -64,13 +73,13 @@ export default function HistoryPage() {
                       </div>
                     </td>
                     <td style={{ opacity: 0.6 }}>{item.doc_type}</td>
-                    <td style={{ opacity: 0.6 }}>{new Date(item.created_at).toLocaleDateString()}</td>
+                    <td style={{ opacity: 0.6 }}>{item.created_at ? new Date(item.created_at).toLocaleDateString() : "—"}</td>
                     <td>
                       <span className={`status-badge ${item.status === 'completed' ? 'status-completed' : 'status-review'}`}>
                         {item.status}
                       </span>
                     </td>
-                    <td style={{ fontWeight: 700 }}>{(item.confidence * 100).toFixed(0)}%</td>
+                    <td style={{ fontWeight: 700 }}>{((item.confidence || 0) * 100).toFixed(0)}%</td>
                     <td>
                       <button className="btn-secondary" style={{ padding: "0.4rem 0.8rem", borderRadius: "0.5rem", fontSize: "0.8rem" }}>
                         <Eye size={14} /> View

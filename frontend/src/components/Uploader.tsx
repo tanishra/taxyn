@@ -3,10 +3,9 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
-  Upload, FileText, CheckCircle2, AlertCircle, 
-  Loader2, ArrowRight, ShieldCheck, PieChart, 
-  Clock, FileSearch, Trash2, Download, Edit3, 
-  RefreshCcw, AlertTriangle, CheckCircle, ChevronDown,
+  Upload,
+  Loader2, ArrowRight,
+  Trash2, Download, ChevronDown,
   Database, LogIn
 } from "lucide-react";
 import axios from "axios";
@@ -20,12 +19,26 @@ interface ExtractionResult {
   request_id: string;
   doc_type: string;
   filename: string;
-  extracted_data: Record<string, any>;
+  extracted_data: Record<string, unknown>;
   confidence: number;
   compliance_flags: string[];
   processing_time_ms: number;
   message?: string;
-  partial_data?: Record<string, any>;
+  partial_data?: Record<string, unknown>;
+}
+
+interface ReconciliationResult {
+  is_matched: boolean;
+  status: string;
+  diff: number;
+}
+
+interface ApiError {
+  response?: {
+    data?: {
+      detail?: string;
+    };
+  };
 }
 
 export const Uploader = () => {
@@ -90,7 +103,7 @@ export const Uploader = () => {
         setResult(response.data);
         setIsUploading(false);
       }, 500);
-    } catch (err: any) {
+    } catch (_err: unknown) {
       setError("Server Error. Make sure backend is running on port 8000.");
       setIsUploading(false);
     }
@@ -109,8 +122,9 @@ export const Uploader = () => {
       });
       setPortalFile(null);
       alert("Successfully uploaded Government Portal data!");
-    } catch (err: any) {
-      setError("Failed to upload portal data.");
+    } catch (err: unknown) {
+      const apiErr = err as ApiError;
+      setError(apiErr.response?.data?.detail || "Failed to upload portal data.");
     } finally {
       setIsPortalUploading(false);
     }
@@ -121,6 +135,7 @@ export const Uploader = () => {
     setResult(null);
     setError(null);
     setProgress(0);
+    setIsReviewOpen(false);
     setIsResolved(false);
   };
 
@@ -130,15 +145,16 @@ export const Uploader = () => {
     return Object.entries(data).filter(([key]) => !hideKeys.includes(key));
   };
 
-  const renderValue = (value: any): React.ReactNode => {
+  const renderValue = (value: unknown): React.ReactNode => {
     if (value === null || value === undefined) return <span style={{ opacity: 0.3 }}>null</span>;
     if (Array.isArray(value) && value.length > 0 && typeof value[0] === "object") {
-      const cols = Object.keys(value[0]);
+      const firstRow = value[0] as Record<string, unknown>;
+      const cols = Object.keys(firstRow);
       return (
         <div className="extraction-table-container" style={{ margin: "0.5rem 0", background: "rgba(0,0,0,0.2)" }}>
           <table className="extraction-table" style={{ fontSize: "0.75rem" }}>
             <thead><tr>{cols.map(c => <th key={c}>{c.replace(/_/g, " ")}</th>)}</tr></thead>
-            <tbody>{value.map((item, i) => <tr key={i}>{cols.map(c => <td key={c}>{renderValue(item[c])}</td>)}</tr>)}</tbody>
+            <tbody>{value.map((item, i) => <tr key={i}>{cols.map(c => <td key={c}>{renderValue((item as Record<string, unknown>)[c])}</td>)}</tr>)}</tbody>
           </table>
         </div>
       );
@@ -163,7 +179,14 @@ export const Uploader = () => {
     XLSX.writeFile(wb, `${result.filename}_extraction.xlsx`);
   };
 
-  const reconData = result?.extracted_data?.recon_results;
+  const rawReconData = result?.extracted_data?.recon_results;
+  const reconData = (
+    rawReconData &&
+    typeof rawReconData === "object" &&
+    "is_matched" in rawReconData &&
+    "status" in rawReconData &&
+    "diff" in rawReconData
+  ) ? (rawReconData as ReconciliationResult) : null;
 
   return (
     <div className="uploader-container">
@@ -281,12 +304,30 @@ export const Uploader = () => {
             </div>
 
             <div style={{ marginTop: "3rem", display: "flex", gap: "1rem" }}>
+              {result.status === "needs_review" && !isResolved && (
+                <button className="btn btn-primary" onClick={() => setIsReviewOpen(true)}>
+                  Manual Review
+                </button>
+              )}
               <button className="btn btn-secondary" onClick={downloadExcel}><Download size={18} /> Excel</button>
               <button className="btn btn-secondary" onClick={reset}><Trash2 size={18} /> New</button>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {result && (
+        <ReviewModal
+          isOpen={isReviewOpen}
+          onClose={() => setIsReviewOpen(false)}
+          data={(result.partial_data || result.extracted_data || {}) as Record<string, unknown>}
+          requestId={result.request_id}
+          onResolved={() => {
+            setIsResolved(true);
+            setIsReviewOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 };

@@ -7,7 +7,7 @@ Wires all components together using dependency injection.
 import structlog
 import uuid
 import random
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Response, APIRouter
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Response, APIRouter, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from contextlib import asynccontextmanager
@@ -62,6 +62,7 @@ container = Container()
 
 # ── Auth Dependency ──────────────────────────────────────
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login", auto_error=False)
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
     token_data = SecurityManager.decode_token(token)
@@ -71,6 +72,14 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
     return user
+
+async def get_optional_user(token: Optional[str] = Depends(oauth2_scheme_optional)) -> Optional[User]:
+    if not token:
+        return None
+    token_data = SecurityManager.decode_token(token)
+    if not token_data:
+        return None
+    return await container.user_store.get_by_id(token_data.user_id)
 
 # ── App lifecycle ──────────────────────────────────────────
 @asynccontextmanager
@@ -195,18 +204,28 @@ async def get_history(user: User = Depends(get_current_user)):
 
 # ── DOMAIN ROUTES ─────────────────────────────────────────
 
+@app.get("/health")
+async def health():
+    return {"status": "ok", "app": settings.APP_NAME}
+
 @app.post("/api/v1/extract")
 async def extract_document(
     file: UploadFile = File(...),
+    tenant_id: Optional[str] = Form(default=None),
     doc_type: str = Form(default="unknown"),
-    user: User = Depends(get_current_user)
+    user: Optional[User] = Depends(get_optional_user)
 ):
-    context = await container.rest_adapter.parse_request({"file": file, "tenant_id": user.id, "doc_type": doc_type})
+    filename = (file.filename or "").lower()
+    if not filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+
+    resolved_tenant_id = user.id if user else (tenant_id or "public_demo")
+    context = await container.rest_adapter.parse_request({"file": file, "tenant_id": resolved_tenant_id, "doc_type": doc_type})
     await container.document_store.save(context.request_id, context.raw_bytes)
     return await container.agent_loop.run(context)
 
 @app.get("/api/v1/document/{request_id}")
-async def get_document(request_id: str, user: User = Depends(get_current_user)):
+async def get_document(request_id: str, user: Optional[User] = Depends(get_optional_user)):
     content = await container.document_store.get(request_id)
     if not content: raise HTTPException(status_code=404, detail="Not found")
     return Response(content=content, media_type="application/pdf")
@@ -218,6 +237,40 @@ async def upload_portal_data(file: UploadFile = File(...), user: User = Depends(
     records = PortalExcelParser().parse(await file.read())
     await container.schema_store.save_schema(user.id, "portal_data", {"records": records})
     return {"status": "success", "records": len(records)}
+
+@app.get("/api/v1/review/pending")
+async def pending_reviews():
+    pending = await container.hitl_queue.get_pending()
+    return {"pending_count": len(pending), "items": pending}
+
+@app.post("/api/v1/review/{request_id}/resolve")
+async def resolve_review(
+    request_id: str,
+    corrected_data: dict = Body(default={}),
+    user: Optional[User] = Depends(get_optional_user)
+):
+    queue_items = await container.hitl_queue.get_pending()
+    queued_item = next((item for item in queue_items if item.get("request_id") == request_id), None)
+    if not queued_item:
+        raise HTTPException(status_code=404, detail="Review item not found")
+
+    tenant_id = queued_item.get("tenant_id") or (user.id if user else "public_demo")
+    vendor_name = str(corrected_data.get("vendor_name", "unknown"))
+    partial_data = queued_item.get("partial_data", {})
+    for field, corrected_value in corrected_data.items():
+        original_value = partial_data.get(field)
+        if corrected_value != original_value:
+            await container.correction_store.save_correction(
+                tenant_id=tenant_id,
+                request_id=request_id,
+                vendor_name=vendor_name,
+                field=field,
+                original=original_value,
+                corrected=corrected_value,
+            )
+
+    await container.hitl_queue.resolve(request_id, corrected_data)
+    return {"status": "success", "message": "Review resolved"}
 
 app.include_router(auth_router)
 

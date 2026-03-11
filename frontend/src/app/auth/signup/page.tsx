@@ -7,6 +7,14 @@ import axios from "axios";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
+interface ApiError {
+  response?: {
+    data?: {
+      detail?: string;
+    };
+  };
+}
+
 export default function SignupPage() {
   const [step, setStep] = useState(1); // 1: Info, 2: OTP
   const [email, setEmail] = useState("");
@@ -28,8 +36,9 @@ export default function SignupPage() {
     try {
       await axios.post("http://localhost:8000/api/v1/auth/signup/initiate", formData);
       setStep(2);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || "Failed to start signup. Check your email.");
+    } catch (err: unknown) {
+      const apiErr = err as ApiError;
+      setError(apiErr.response?.data?.detail || "Failed to start signup. Check your email.");
     } finally {
       setIsLoading(false);
     }
@@ -49,8 +58,9 @@ export default function SignupPage() {
     try {
       await axios.post("http://localhost:8000/api/v1/auth/signup/verify", formData);
       router.push("/auth/login?verified=true");
-    } catch (err: any) {
-      setError(err.response?.data?.detail || "Invalid OTP. Please check again.");
+    } catch (err: unknown) {
+      const apiErr = err as ApiError;
+      setError(apiErr.response?.data?.detail || "Invalid OTP. Please check again.");
     } finally {
       setIsLoading(false);
     }

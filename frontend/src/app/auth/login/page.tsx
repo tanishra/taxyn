@@ -9,6 +9,14 @@ import axios from "axios";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 
+interface ApiError {
+  response?: {
+    data?: {
+      detail?: string;
+    };
+  };
+}
+
 function LoginContent() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -46,8 +54,9 @@ function LoginContent() {
     try {
       const res = await axios.post("http://localhost:8000/api/v1/auth/login", formData);
       login(res.data.access_token);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || "Login failed. Check your credentials.");
+    } catch (err: unknown) {
+      const apiErr = err as ApiError;
+      setError(apiErr.response?.data?.detail || "Login failed. Check your credentials.");
     } finally {
       setIsLoading(false);
     }
@@ -63,7 +72,7 @@ function LoginContent() {
         formData.append("token", tokenResponse.access_token);
         const res = await axios.post("http://localhost:8000/api/v1/auth/google", formData);
         login(res.data.access_token);
-      } catch (err) {
+      } catch (_err) {
         setError("Google Login failed. Please try again.");
       } finally {
         setIsLoading(false);
@@ -155,7 +164,7 @@ function LoginContent() {
         </button>
 
         <p style={{ textAlign: "center", marginTop: "2rem", fontSize: "0.875rem", color: "rgba(255,255,255,0.5)" }}>
-          Don't have an account? <Link href="/auth/signup" style={{ color: "var(--primary)", fontWeight: 600 }}>Create Account</Link>
+          Don&apos;t have an account? <Link href="/auth/signup" style={{ color: "var(--primary)", fontWeight: 600 }}>Create Account</Link>
         </p>
       </motion.div>
     </main>

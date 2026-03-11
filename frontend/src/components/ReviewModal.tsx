@@ -1,22 +1,23 @@
 "use client";
 
 import React, { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { 
-  X, Check, AlertCircle, Eye, 
-  ChevronRight, Save, History, FileText, Loader2
-} from "lucide-react";
+import { motion } from "framer-motion";
+import { X, Check, AlertCircle, Eye, Loader2 } from "lucide-react";
 import axios from "axios";
+import { useAuth } from "./AuthContext";
+
+type ReviewData = Record<string, unknown>;
 
 interface ReviewModalProps {
   isOpen: boolean;
   onClose: () => void;
-  data: any;
+  data: ReviewData;
   requestId: string;
   onResolved: () => void;
 }
 
 export const ReviewModal = ({ isOpen, onClose, data, requestId, onResolved }: ReviewModalProps) => {
+  const { token } = useAuth();
   const [formData, setFormData] = useState(data || {});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -25,7 +26,9 @@ export const ReviewModal = ({ isOpen, onClose, data, requestId, onResolved }: Re
   const handleSave = async () => {
     setIsSubmitting(true);
     try {
-      await axios.post(`http://localhost:8000/api/v1/review/${requestId}/resolve`, formData);
+      await axios.post(`http://localhost:8000/api/v1/review/${requestId}/resolve`, formData, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
       onResolved();
       onClose();
     } catch (err) {

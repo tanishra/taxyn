@@ -12,9 +12,12 @@ This means the same AgentLoop can work for:
 """
 
 from fastapi import UploadFile
+import structlog
 from agent.context import Context, DocType
 from agent.interfaces import ChannelInterface
 from memory.stores import SchemaStore
+
+logger = structlog.get_logger(__name__)
 
 
 class RestAdapter(ChannelInterface):
