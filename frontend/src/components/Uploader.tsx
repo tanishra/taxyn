@@ -13,6 +13,7 @@ import * as XLSX from "xlsx";
 import { ReviewModal } from "./ReviewModal";
 import { useAuth } from "./AuthContext";
 import { useRouter } from "next/navigation";
+import { apiUrl } from "@/lib/api";
 
 interface ExtractionResult {
   status: string;
@@ -95,7 +96,7 @@ export const Uploader = () => {
     formData.append("doc_type", docType);
 
     try {
-      const response = await axios.post("http://localhost:8000/api/v1/extract", formData, {
+      const response = await axios.post(apiUrl("/api/v1/extract"), formData, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setProgress(100);
@@ -117,7 +118,7 @@ export const Uploader = () => {
     formData.append("file", portalFile);
 
     try {
-      await axios.post("http://localhost:8000/api/v1/reconcile/upload-portal", formData, {
+      await axios.post(apiUrl("/api/v1/reconcile/upload-portal"), formData, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setPortalFile(null);

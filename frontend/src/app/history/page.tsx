@@ -7,6 +7,7 @@ import { FileText, Eye } from "lucide-react";
 import { useAuth } from "@/components/AuthContext";
 import axios from "axios";
 import * as XLSX from "xlsx";
+import { apiUrl } from "@/lib/api";
 
 interface HistoryItem {
   request_id: string;
@@ -50,7 +51,7 @@ export default function HistoryPage() {
 
     const load = async () => {
       try {
-        const res = await axios.get("http://localhost:8000/api/v1/auth/history", {
+        const res = await axios.get(apiUrl("/api/v1/auth/history"), {
           headers: { Authorization: `Bearer ${token}` }
         });
         const rows: HistoryItem[] = (Array.isArray(res.data) ? res.data : []).map((row: RawHistoryItem) => ({
@@ -75,7 +76,7 @@ export default function HistoryPage() {
     if (!token || !item.request_id) return;
     setOpeningRequestId(item.request_id);
     try {
-      const res = await axios.get(`http://localhost:8000/api/v1/auth/history/${item.request_id}`, {
+      const res = await axios.get(apiUrl(`/api/v1/auth/history/${item.request_id}`), {
         headers: { Authorization: `Bearer ${token}` }
       });
       const payload = res.data || {};
@@ -350,7 +351,7 @@ export default function HistoryPage() {
             <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr", overflow: "hidden" }}>
               <div style={{ borderRight: "1px solid var(--glass-border)", background: "rgba(0,0,0,0.3)" }}>
                 <iframe
-                  src={`http://localhost:8000/api/v1/document/${selected.request_id}`}
+                  src={apiUrl(`/api/v1/document/${selected.request_id}`)}
                   style={{ width: "100%", height: "100%", border: "none" }}
                   title="History Document"
                 />

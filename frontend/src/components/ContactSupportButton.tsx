@@ -6,6 +6,7 @@ import { MessageSquareWarning, Send, X, Mail, Globe, Clock, ArrowRight } from "l
 import { useAuth } from "@/components/AuthContext";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import { apiUrl } from "@/lib/api";
 
 type ContactSupportButtonProps = {
   className?: string;
@@ -63,7 +64,7 @@ export function ContactSupportButton({ className = "footer-contact-btn", childre
       formData.append("email", resolvedEmail);
 
       const token = localStorage.getItem("token");
-      await axios.post("http://localhost:8000/api/v1/contact", formData, {
+      await axios.post(apiUrl("/api/v1/contact"), formData, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
 

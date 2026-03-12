@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { X, Check, AlertCircle, Eye, Loader2 } from "lucide-react";
 import axios from "axios";
 import { useAuth } from "./AuthContext";
+import { apiUrl } from "@/lib/api";
 
 type ReviewData = Record<string, unknown>;
 
@@ -26,7 +27,7 @@ export const ReviewModal = ({ isOpen, onClose, data, requestId, onResolved }: Re
   const handleSave = async () => {
     setIsSubmitting(true);
     try {
-      await axios.post(`http://localhost:8000/api/v1/review/${requestId}/resolve`, formData, {
+      await axios.post(apiUrl(`/api/v1/review/${requestId}/resolve`), formData, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
       onResolved();
@@ -80,7 +81,7 @@ export const ReviewModal = ({ isOpen, onClose, data, requestId, onResolved }: Re
             </div>
             <div style={{ flex: 1, borderRadius: "1rem", overflow: "hidden", background: "#333", position: "relative" }}>
               <iframe 
-                src={`http://localhost:8000/api/v1/document/${requestId}`}
+                src={apiUrl(`/api/v1/document/${requestId}`)}
                 style={{ width: "100%", height: "100%", border: "none" }}
                 title="Document Preview"
               />

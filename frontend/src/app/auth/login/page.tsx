@@ -8,6 +8,7 @@ import { useGoogleLogin } from "@react-oauth/google";
 import axios from "axios";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
+import { apiUrl } from "@/lib/api";
 
 interface ApiError {
   response?: {
@@ -52,7 +53,7 @@ function LoginContent() {
     formData.append("password", password);
 
     try {
-      const res = await axios.post("http://localhost:8000/api/v1/auth/login", formData);
+      const res = await axios.post(apiUrl("/api/v1/auth/login"), formData);
       login(res.data.access_token);
     } catch (err: unknown) {
       const apiErr = err as ApiError;
@@ -70,7 +71,7 @@ function LoginContent() {
       try {
         const formData = new FormData();
         formData.append("token", tokenResponse.access_token);
-        const res = await axios.post("http://localhost:8000/api/v1/auth/google", formData);
+        const res = await axios.post(apiUrl("/api/v1/auth/google"), formData);
         login(res.data.access_token);
       } catch (_err) {
         setError("Google Login failed. Please try again.");

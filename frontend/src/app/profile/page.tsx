@@ -18,6 +18,7 @@ import {
 import { Navbar } from "@/components/Navbar";
 import { useAuth } from "@/components/AuthContext";
 import axios from "axios";
+import { apiUrl } from "@/lib/api";
 
 export default function ProfilePage() {
   const { user, token, refreshProfile, isLoading: authLoading } = useAuth();
@@ -68,7 +69,7 @@ export default function ProfilePage() {
     formData.append("pincode", pincode);
 
     try {
-      await axios.put("http://localhost:8000/api/v1/auth/profile", formData, {
+      await axios.put(apiUrl("/api/v1/auth/profile"), formData, {
         headers: { Authorization: `Bearer ${token}` },
       });
       await refreshProfile();

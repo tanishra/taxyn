@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import axios from "axios";
 import { useRouter } from "next/navigation";
+import { apiUrl } from "@/lib/api";
 
 interface User {
   id: string;
@@ -48,7 +49,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const fetchProfile = async (t: string) => {
     try {
-      const res = await axios.get("http://localhost:8000/api/v1/auth/me", {
+      const res = await axios.get(apiUrl("/api/v1/auth/me"), {
         headers: { Authorization: `Bearer ${t}` }
       });
       setUser(res.data);

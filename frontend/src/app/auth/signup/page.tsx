@@ -6,6 +6,7 @@ import { UserPlus, Mail, Lock, User, ArrowRight, ShieldCheck, KeyRound } from "l
 import axios from "axios";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { apiUrl } from "@/lib/api";
 
 interface ApiError {
   response?: {
@@ -34,7 +35,7 @@ export default function SignupPage() {
     formData.append("email", email);
 
     try {
-      await axios.post("http://localhost:8000/api/v1/auth/signup/initiate", formData);
+      await axios.post(apiUrl("/api/v1/auth/signup/initiate"), formData);
       setStep(2);
     } catch (err: unknown) {
       const apiErr = err as ApiError;
@@ -56,7 +57,7 @@ export default function SignupPage() {
     formData.append("full_name", fullName);
 
     try {
-      await axios.post("http://localhost:8000/api/v1/auth/signup/verify", formData);
+      await axios.post(apiUrl("/api/v1/auth/signup/verify"), formData);
       router.push("/auth/login?verified=true");
     } catch (err: unknown) {
       const apiErr = err as ApiError;
