@@ -4,6 +4,7 @@ import "./globals.css";
 import "./ui.css";
 import { AuthProvider } from "@/components/AuthContext";
 import { GoogleOAuthProvider } from "@react-oauth/google";
+import { CursorGlow } from "@/components/CursorGlow";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -33,7 +34,8 @@ export default function RootLayout({
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
         <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
           <AuthProvider>
-            {children}
+            <CursorGlow />
+            <div className="app-content">{children}</div>
           </AuthProvider>
         </GoogleOAuthProvider>
       </body>

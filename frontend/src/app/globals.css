@@ -13,6 +13,9 @@
   --warning: #f59e0b;
   --error: #ef4444;
   --muted: rgba(255, 255, 255, 0.5);
+  --cursor-x: 50vw;
+  --cursor-y: 50vh;
+  --cursor-glow-opacity: 0;
 }
 
 * {
@@ -29,6 +32,7 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  position: relative;
 }
 
 body::before {
@@ -91,4 +95,30 @@ button {
 
 .text-vibrant {
   color: var(--primary);
+}
+
+.cursor-glow {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: var(--cursor-glow-opacity);
+  transition: opacity 0.25s ease;
+  background:
+    radial-gradient(
+      220px circle at var(--cursor-x) var(--cursor-y),
+      rgba(129, 140, 248, 0.16),
+      rgba(129, 140, 248, 0.07) 40%,
+      transparent 72%
+    ),
+    radial-gradient(
+      130px circle at var(--cursor-x) var(--cursor-y),
+      rgba(167, 139, 250, 0.08),
+      transparent 75%
+    );
+}
+
+.app-content {
+  position: relative;
+  z-index: 1;
 }
