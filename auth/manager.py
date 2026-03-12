@@ -15,8 +15,7 @@ from config.settings import settings
 
 # ── Security Config ──────────────────────────────────────────
 # Argon2 is superior to bcrypt for modern auth
-# Explicitly set bcrypt backend to 'bcrypt' to avoid passlib auto-detection issues
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__backend="bcrypt")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 # 24 hours
