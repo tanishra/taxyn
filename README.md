@@ -13,8 +13,8 @@
 
 <br/>
 
-> **Upload a PDF invoice, GST return, bank statement, or TDS certificate.**
-> **Taxyn extracts structured data, validates Indian compliance rules, and reconciles against portal data — automatically.**
+> **Upload a PDF invoice, GST return, bank statement, TDS certificate, or reconciliation document.**
+> **Taxyn extracts structured data, validates Indian compliance rules, and reconciles against portal data automatically.**
 
 <br/>
 
@@ -27,8 +27,8 @@
 Taxyn is an AI-powered platform that automates Indian financial document audits:
 
 1. **Secure Identity:** Email verification (OTP) and Google Auth ensure data isolation per user.
-2. **Deep Extraction:** Pulls multi-line tables from PDFs using IBM Docling (30x faster than traditional OCR).
-3. **Smart Reconciliation:** Matches physical invoices against actual Government GSTR-2A portal Excel files to find missing tax credits.
+2. **Deep Extraction:** Pulls multi-line tables from PDFs using IBM Docling with schema-driven extraction per document type.
+3. **Smart Reconciliation:** Matches source documents against Government GSTR-2A portal Excel files to find missing tax credits.
 4. **Deterministic Audit:** Hardcoded validation for GSTIN, PAN, and tax math to eliminate AI hallucinations.
 5. **Continuous Learning:** Remembers every human correction, improving vendor-specific accuracy over time.
 
@@ -46,7 +46,7 @@ graph LR
     end
 
     subgraph AGENT["AGENT LAYER"]
-        AL["AgentLoop\nUser-Isolated Orchestrator"]
+        AL["AgentLoop\nUser-Isolated Orchestrator + Confidence Routing"]
         CO["ContextObject\nMetadata + Multi-Tenant ID"]
         PL["Planner\nSpecialist Selector"]
     end
@@ -63,6 +63,7 @@ graph LR
         T2["ParserTool\nGPT-4o + Instructor"]
         T3["ValidatorTool\nDeterministic Compliance"]
         T4["PortalParser\nPandas Excel Engine"]
+        T5["HITL Queue\nReview + Correction Flow"]
     end
 
     subgraph MEMORY["PERSISTENCE (Postgres)"]
@@ -77,6 +78,7 @@ graph LR
     PL --> S1 & S2 & S3 & S4
     S1 & S2 & S3 & S4 --> T1 --> T2 --> T3
     S4 --> T4
+    T3 --> T5
     MEMORY --> AL
 ```
 
@@ -91,7 +93,7 @@ cd taxyn
 pip install -r requirements.txt
 
 # 2. Configure Environment
-# Add DATABASE_URL, OPENAI_API_KEY, and SMTP settings for OTP to .env
+# Add DATABASE_URL (Neon Postgres recommended), OPENAI_API_KEY, SMTP settings, SUPPORT_EMAIL, and GOOGLE_CLIENT_ID to .env
 
 # 3. Run Backend
 python main.py
@@ -113,9 +115,8 @@ streamlit run app.py
 
 - **GSTR-2A Portal Sync:** Upload actual government Excel files to find missing Input Tax Credit (ITC) instantly.
 - **Side-by-Side Verification:** Professional UI to verify AI extractions against the source PDF in real-time.
-- **Enterprise Persistence:** All documents, audits, and profiles are stored in high-performance PostgreSQL.
+- **Enterprise Persistence:** All documents, audits, and profiles are stored in high-performance PostgreSQL (Neon managed Postgres in production).
 - **Vendor Memory:** System learns from your corrections once and applies them to all future documents from that vendor.
-- **SaaS Identity:** Full account management with profile sections for Company Name and GSTIN.
 
 ---
 
@@ -125,7 +126,7 @@ Taxyn is specialized for the unique layouts of Indian compliance documentation:
 
 - **Invoices:** B2B and B2C invoices with multi-line item table extraction.
 - **Bank Statements:** Full ledger processing from all major Indian banks (SBI, HDFC, ICICI, etc.).
-- **GST Returns:** Parses GSTR-1, GSTR-3B, and portal summaries for audit.
+- **GST Returns & Reconciliation:** Parses GSTR summaries and supports portal Excel-assisted reconciliation workflows.
 - **TDS Certificates:** Automated reconciliation of Form 16/16A data.
 
 ---
