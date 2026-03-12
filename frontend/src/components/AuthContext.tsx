@@ -18,6 +18,7 @@ interface User {
   city?: string;
   state?: string;
   pincode?: string;
+  is_admin?: boolean;
 }
 
 interface AuthContextType {

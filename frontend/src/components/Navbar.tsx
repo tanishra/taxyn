@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { ShieldCheck, User as UserIcon, LogOut, History, LayoutDashboard } from "lucide-react";
+import { ShieldCheck, User as UserIcon, LogOut, History, LayoutDashboard, Shield } from "lucide-react";
 import { useAuth } from "./AuthContext";
 import Link from "next/link";
 import { ContactSupportButton } from "./ContactSupportButton";
@@ -21,6 +21,7 @@ export const Navbar = () => {
       <div className="nav-links">
         {user ? (
           <>
+            {user?.is_admin && <Link href="/admin" className="nav-link"><Shield size={18} /> Admin</Link>}
             <Link href="/" className="nav-link"><LayoutDashboard size={18} /> Dashboard</Link>
             <Link href="/history" className="nav-link"><History size={18} /> History</Link>
             <ContactSupportButton className="nav-link" />

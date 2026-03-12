@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
-import { MessageSquareWarning, Send, X, Mail, Globe, Clock, ArrowRight } from "lucide-react";
+import { MessageSquareWarning, X, Mail, Globe, Clock, ArrowRight } from "lucide-react";
 import { useAuth } from "@/components/AuthContext";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
@@ -63,7 +63,7 @@ export function ContactSupportButton({ className = "footer-contact-btn", childre
       formData.append("name", resolvedName);
       formData.append("email", resolvedEmail);
 
-      const token = localStorage.getItem("token");
+      const token = localStorage.getItem("taxyn_token");
       await axios.post(apiUrl("/api/v1/contact"), formData, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });

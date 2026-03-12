@@ -28,6 +28,7 @@ class Settings(BaseSettings):
 
     # ─── Auth Config ───────────────────────────────────────────
     GOOGLE_CLIENT_ID: str = ""
+    ADMIN_EMAILS: str = ""
 
     class Config:
         env_file = ".env"

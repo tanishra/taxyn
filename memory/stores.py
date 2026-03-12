@@ -36,6 +36,7 @@ class User(Base):
     state = Column(String, nullable=True)
     pincode = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
+    is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 class OTPRecord(Base):
@@ -86,6 +87,7 @@ class SQLRepository(MemoryRepositoryInterface):
             "city": "VARCHAR",
             "state": "VARCHAR",
             "pincode": "VARCHAR",
+            "is_admin": "BOOLEAN DEFAULT FALSE",
         }
 
         dialect = conn.dialect.name

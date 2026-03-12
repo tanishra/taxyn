@@ -7,19 +7,21 @@ Wires all components together using dependency injection.
 import structlog
 import uuid
 import random
+from datetime import datetime
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Response, APIRouter, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from contextlib import asynccontextmanager
 from typing import Optional
+from sqlalchemy import select, func, delete
 
 # ── Core Components ────────────────────────────────────────
 from agent.loop import AgentLoop
 from agent.planner import Planner
 from agent.context import Context, DocType
 from skills.factory import SkillFactory
-from memory.stores import SQLRepository, InMemoryRepository, SchemaStore, CorrectionStore, AuditStore, DocumentStore, UserStore, User
+from memory.stores import SQLRepository, InMemoryRepository, SchemaStore, CorrectionStore, AuditStore, DocumentStore, UserStore, User, StoreItem, DocumentBlob
 from output.serializer import ResponseSerializer
 from output.hitl_queue import HITLQueue
 from observability.tracer import Tracer
@@ -89,6 +91,13 @@ PROFILE_EXTRA_FIELDS = (
     "pincode",
 )
 
+ADMIN_EMAIL_SET = {email.strip().lower() for email in (settings.ADMIN_EMAILS or "").split(",") if email.strip()}
+
+
+def _is_admin_user(user: User) -> bool:
+    user_email = (getattr(user, "email", "") or "").lower()
+    return bool(getattr(user, "is_admin", False)) or (user_email in ADMIN_EMAIL_SET)
+
 # ── Auth Dependency ──────────────────────────────────────
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login", auto_error=False)
@@ -100,6 +109,10 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
     user = await container.user_store.get_by_id(token_data.user_id)
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    # Auto-promote configured admin emails to is_admin for existing users.
+    if user.email and user.email.lower() in ADMIN_EMAIL_SET and not bool(getattr(user, "is_admin", False)):
+        user.is_admin = True
+        await container.user_store.create_user(user)
     return user
 
 async def get_optional_user(token: Optional[str] = Depends(oauth2_scheme_optional)) -> Optional[User]:
@@ -111,6 +124,12 @@ async def get_optional_user(token: Optional[str] = Depends(oauth2_scheme_optiona
     return await container.user_store.get_by_id(token_data.user_id)
 
 
+async def get_admin_user(user: User = Depends(get_current_user)) -> User:
+    if _is_admin_user(user):
+        return user
+    raise HTTPException(status_code=403, detail="Admin access required")
+
+
 async def _get_profile_extra(user_id: str) -> dict:
     profile = await container.repo.get(f"user_profile:{user_id}")
     if isinstance(profile, dict):
@@ -120,6 +139,30 @@ async def _get_profile_extra(user_id: str) -> dict:
 
 def _db_profile_fields(user: User) -> dict:
     return {field: getattr(user, field, "") or "" for field in PROFILE_EXTRA_FIELDS}
+
+
+def _extract_persisted_data(trace: dict) -> dict:
+    if not isinstance(trace, dict):
+        return {}
+    candidates = [
+        trace.get("extracted_data"),
+        trace.get("partial_data"),
+        (trace.get("result") or {}).get("extracted_data") if isinstance(trace.get("result"), dict) else None,
+        (trace.get("response") or {}).get("extracted_data") if isinstance(trace.get("response"), dict) else None,
+        (trace.get("metadata") or {}).get("extracted_data") if isinstance(trace.get("metadata"), dict) else None,
+    ]
+    for candidate in candidates:
+        if isinstance(candidate, dict) and candidate:
+            return candidate
+    for tool_result in trace.get("tool_results", []) if isinstance(trace.get("tool_results"), list) else []:
+        if not isinstance(tool_result, dict):
+            continue
+        data = tool_result.get("data")
+        if isinstance(data, dict):
+            parser_fields = data.get("fields")
+            if isinstance(parser_fields, dict) and parser_fields:
+                return parser_fields
+    return {}
 
 # ── App lifecycle ──────────────────────────────────────────
 @asynccontextmanager
@@ -160,7 +203,8 @@ async def verify_signup(email: str = Form(...), otp: str = Form(...), password: 
         id=str(uuid.uuid4()),
         email=email,
         full_name=full_name,
-        hashed_password=SecurityManager.hash_password(password)
+        hashed_password=SecurityManager.hash_password(password),
+        is_admin=email.lower() in ADMIN_EMAIL_SET,
     )
     await container.user_store.create_user(new_user)
     return {"status": "success", "message": "Account verified and created"}
@@ -207,7 +251,8 @@ async def google_login(token: str = Form(...)):
                 id=str(uuid.uuid4()),
                 email=email,
                 full_name=full_name,
-                hashed_password=None # No password for Google users
+                hashed_password=None, # No password for Google users
+                is_admin=email.lower() in ADMIN_EMAIL_SET,
             )
             await container.user_store.create_user(user)
             logger.info("google_auth.new_user_created", email=email)
@@ -235,6 +280,7 @@ async def get_profile(user: User = Depends(get_current_user)):
         "full_name": user.full_name,
         "company_name": user.company_name,
         "gstin": user.gstin,
+        "is_admin": _is_admin_user(user),
     }
     for field in PROFILE_EXTRA_FIELDS:
         response[field] = profile_extra.get(field, "")
@@ -286,6 +332,7 @@ async def update_profile(
             "full_name": user.full_name,
             "company_name": user.company_name,
             "gstin": user.gstin,
+            "is_admin": _is_admin_user(user),
             **profile_extra,
         },
     }
@@ -300,38 +347,7 @@ async def get_history_item(request_id: str, user: User = Depends(get_current_use
     if not trace:
         raise HTTPException(status_code=404, detail="History item not found")
 
-    # Backward-compatible result extraction from stored trace
-    extracted_data = trace.get("extracted_data") or {}
-    if not extracted_data:
-        for tool_result in trace.get("tool_results", []):
-            if tool_result.get("tool") == "parser_tool":
-                parser_fields = tool_result.get("data", {}).get("fields", {})
-                if isinstance(parser_fields, dict):
-                    extracted_data = parser_fields
-                break
-    
-    # Backfill for older traces that did not persist extracted_data/tool payloads.
-    if not extracted_data:
-        try:
-            content = await container.document_store.get(request_id)
-            if content:
-                doc_type_raw = str(trace.get("doc_type", "unknown")).replace("DocType.", "").lower()
-                doc_type = DocType(doc_type_raw) if doc_type_raw in DocType._value2member_map_ else DocType.UNKNOWN
-                schema = await container.schema_store.get_schema(user.id, doc_type_raw)
-
-                replay_context = Context(
-                    request_id=request_id,
-                    tenant_id=user.id,
-                    doc_type=doc_type,
-                    raw_bytes=content,
-                    filename=trace.get("filename", "document.pdf"),
-                    extraction_schema=schema,
-                )
-                skill = await container.agent_loop._planner.plan(replay_context)
-                await skill.run(replay_context)
-                extracted_data = replay_context.extracted_data or {}
-        except Exception as e:
-            logger.error("history_item.backfill_failed", request_id=request_id, error=str(e))
+    extracted_data = _extract_persisted_data(trace)
 
     return {
         "request_id": trace.get("request_id", request_id),
@@ -365,6 +381,19 @@ async def submit_contact_message(
     if not final_message:
         raise HTTPException(status_code=400, detail="Message is required")
 
+    feedback_id = str(uuid.uuid4())
+    feedback_payload = {
+        "feedback_id": feedback_id,
+        "user_id": user.id if user else "",
+        "name": final_name or "Taxyn User",
+        "email": final_email,
+        "subject": final_subject,
+        "message": final_message,
+        "status": "open",
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    await container.repo.set(f"feedback:{feedback_id}", feedback_payload, tags="feedback")
+
     try:
         await Mailer.send_contact_message(
             sender_email=final_email,
@@ -377,7 +406,215 @@ async def submit_contact_message(
         logger.error("contact.submit_failed", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to send message")
 
-    return {"status": "success", "message": "Your message has been sent"}
+    return {"status": "success", "message": "Your message has been sent", "feedback_id": feedback_id}
+
+
+admin_router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+
+
+def _serialize_user_admin(user: User) -> dict:
+    return {
+        "id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "company_name": user.company_name,
+        "gstin": user.gstin,
+        "contact_phone": getattr(user, "contact_phone", "") or "",
+        "designation": getattr(user, "designation", "") or "",
+        "company_pan": getattr(user, "company_pan", "") or "",
+        "address_line1": getattr(user, "address_line1", "") or "",
+        "city": getattr(user, "city", "") or "",
+        "state": getattr(user, "state", "") or "",
+        "pincode": getattr(user, "pincode", "") or "",
+        "is_active": bool(getattr(user, "is_active", True)),
+        "is_admin": _is_admin_user(user),
+        "created_at": user.created_at.isoformat() if getattr(user, "created_at", None) else None,
+    }
+
+
+@admin_router.get("/overview")
+async def admin_overview(_: User = Depends(get_admin_user)):
+    if not isinstance(container.repo, SQLRepository):
+        raise HTTPException(status_code=500, detail="Admin panel requires SQL repository")
+
+    async with container.repo.async_session() as session:
+        total_users = await session.scalar(select(func.count()).select_from(User))
+        active_users = await session.scalar(select(func.count()).select_from(User).where(User.is_active == True))
+        total_documents = await session.scalar(select(func.count()).select_from(DocumentBlob))
+        total_audits = await session.scalar(
+            select(func.count()).select_from(StoreItem).where(StoreItem.key.like("audit:%"))
+        )
+
+    feedback_items = await container.repo.get_by_tag("feedback")
+    open_feedback = sum(1 for item in feedback_items if isinstance(item, dict) and item.get("status", "open") != "resolved")
+
+    return {
+        "total_users": int(total_users or 0),
+        "active_users": int(active_users or 0),
+        "total_documents": int(total_documents or 0),
+        "total_processed": int(total_audits or 0),
+        "open_feedback": int(open_feedback),
+    }
+
+
+@admin_router.get("/users")
+async def admin_list_users(_: User = Depends(get_admin_user)):
+    if not isinstance(container.repo, SQLRepository):
+        raise HTTPException(status_code=500, detail="Admin panel requires SQL repository")
+
+    async with container.repo.async_session() as session:
+        users = (await session.execute(select(User).order_by(User.created_at.desc()))).scalars().all()
+
+        rows = []
+        for user in users:
+            processed = await session.scalar(
+                select(func.count())
+                .select_from(StoreItem)
+                .where(StoreItem.key.like(f"audit:{user.id}:%"))
+            )
+            payload = _serialize_user_admin(user)
+            payload["documents_processed"] = int(processed or 0)
+            rows.append(payload)
+
+    return rows
+
+
+@admin_router.put("/users/{user_id}")
+async def admin_update_user(
+    user_id: str,
+    payload: dict = Body(default={}),
+    admin_user: User = Depends(get_admin_user),
+):
+    allowed_fields = {
+        "full_name",
+        "company_name",
+        "gstin",
+        "contact_phone",
+        "designation",
+        "company_pan",
+        "address_line1",
+        "city",
+        "state",
+        "pincode",
+        "is_active",
+        "is_admin",
+    }
+    updates = {k: v for k, v in payload.items() if k in allowed_fields}
+
+    if not isinstance(container.repo, SQLRepository):
+        user = await container.user_store.get_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        for key, value in updates.items():
+            setattr(user, key, value)
+        if user.id == admin_user.id and updates.get("is_admin") is False:
+            raise HTTPException(status_code=400, detail="You cannot remove your own admin access")
+        await container.user_store.create_user(user)
+        return {"status": "success", "user": _serialize_user_admin(user)}
+
+    async with container.repo.async_session() as session:
+        user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if user.id == admin_user.id and updates.get("is_admin") is False:
+            raise HTTPException(status_code=400, detail="You cannot remove your own admin access")
+        for key, value in updates.items():
+            setattr(user, key, value)
+        await session.commit()
+        await session.refresh(user)
+        return {"status": "success", "user": _serialize_user_admin(user)}
+
+
+@admin_router.delete("/users/{user_id}")
+async def admin_delete_user(user_id: str, admin_user: User = Depends(get_admin_user)):
+    if user_id == admin_user.id:
+        raise HTTPException(status_code=400, detail="You cannot delete your own admin user")
+    if not isinstance(container.repo, SQLRepository):
+        raise HTTPException(status_code=500, detail="Admin panel requires SQL repository")
+
+    async with container.repo.async_session() as session:
+        user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        audit_items = (
+            await session.execute(select(StoreItem).where(StoreItem.key.like(f"audit:{user_id}:%")))
+        ).scalars().all()
+        for item in audit_items:
+            request_id = item.key.split(":")[-1]
+            await session.execute(delete(DocumentBlob).where(DocumentBlob.request_id == request_id))
+            await session.delete(item)
+
+        await session.delete(user)
+        await session.commit()
+
+    return {"status": "success", "message": "User deleted"}
+
+
+@admin_router.get("/users/{user_id}/history")
+async def admin_user_history(user_id: str, _: User = Depends(get_admin_user)):
+    if not isinstance(container.repo, SQLRepository):
+        raise HTTPException(status_code=500, detail="Admin panel requires SQL repository")
+
+    async with container.repo.async_session() as session:
+        result = await session.execute(
+            select(StoreItem)
+            .where(StoreItem.key.like(f"audit:{user_id}:%"))
+            .order_by(StoreItem.updated_at.desc())
+            .limit(100)
+        )
+        rows = []
+        for item in result.scalars().all():
+            value = dict(item.value or {})
+            value["request_id"] = value.get("request_id") or item.key.split(":")[-1]
+            if "created_at" not in value and item.updated_at:
+                value["created_at"] = item.updated_at.isoformat()
+            rows.append(value)
+    return rows
+
+
+@admin_router.get("/users/{user_id}/history/{request_id}")
+async def admin_user_history_item(user_id: str, request_id: str, _: User = Depends(get_admin_user)):
+    trace = await container.audit_store.get(user_id, request_id)
+    if not trace:
+        raise HTTPException(status_code=404, detail="History item not found")
+
+    extracted_data = _extract_persisted_data(trace)
+
+    return {
+        "request_id": trace.get("request_id", request_id),
+        "filename": trace.get("filename", "document.pdf"),
+        "doc_type": str(trace.get("doc_type", "unknown")).replace("DocType.", "").lower(),
+        "status": trace.get("status", "completed"),
+        "confidence": trace.get("confidence", trace.get("overall_confidence", 0.0)),
+        "created_at": trace.get("created_at"),
+        "compliance_flags": trace.get("compliance_flags", []),
+        "extracted_data": extracted_data,
+    }
+
+
+@admin_router.get("/feedback")
+async def admin_feedback(_: User = Depends(get_admin_user)):
+    rows = await container.repo.get_by_tag("feedback")
+    normalized = [item for item in rows if isinstance(item, dict)]
+    normalized.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return normalized
+
+
+@admin_router.put("/feedback/{feedback_id}/status")
+async def admin_update_feedback_status(
+    feedback_id: str,
+    status: str = Form(...),
+    _: User = Depends(get_admin_user),
+):
+    key = f"feedback:{feedback_id}"
+    payload = await container.repo.get(key)
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=404, detail="Feedback not found")
+    payload["status"] = status
+    payload["updated_at"] = datetime.utcnow().isoformat()
+    await container.repo.set(key, payload, tags="feedback")
+    return {"status": "success", "feedback": payload}
 
 # ── DOMAIN ROUTES ─────────────────────────────────────────
 
@@ -450,6 +687,7 @@ async def resolve_review(
     return {"status": "success", "message": "Review resolved"}
 
 app.include_router(auth_router)
+app.include_router(admin_router)
 
 if __name__ == "__main__":
     import uvicorn
