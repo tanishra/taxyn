@@ -4,6 +4,7 @@ import React from "react";
 import { ShieldCheck, User as UserIcon, LogOut, History, LayoutDashboard } from "lucide-react";
 import { useAuth } from "./AuthContext";
 import Link from "next/link";
+import { ContactSupportButton } from "./ContactSupportButton";
 
 export const Navbar = () => {
   const { user, logout } = useAuth();
@@ -22,6 +23,7 @@ export const Navbar = () => {
           <>
             <Link href="/" className="nav-link"><LayoutDashboard size={18} /> Dashboard</Link>
             <Link href="/history" className="nav-link"><History size={18} /> History</Link>
+            <ContactSupportButton className="nav-link" />
             <div style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.1)" }}></div>
             <Link href="/profile" style={{ display: "flex", alignItems: "center", gap: "0.75rem", color: "#fff", cursor: "pointer" }}>
               <UserIcon size={18} />

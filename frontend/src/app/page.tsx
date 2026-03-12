@@ -8,6 +8,8 @@ import { ShieldCheck, Zap, Database, CheckCircle, ArrowRight, Building2, Landmar
 import { useAuth } from "@/components/AuthContext";
 import Link from "next/link";
 
+import { ContactSupportButton } from "@/components/ContactSupportButton";
+
 export default function Home() {
   const { user, isLoading } = useAuth();
 
@@ -132,8 +134,11 @@ export default function Home() {
           </div>
         </div>
         <div className="footer-bottom">
-          {!user && <Link href="/auth/signup" className="footer-link">Start Free</Link>}
-          {user && <span className="footer-link">Secure AI Workflow</span>}
+          <div style={{ display: "flex", gap: "1.5rem", alignItems: "center" }}>
+            {!user && <Link href="/auth/signup" className="footer-link">Start Free</Link>}
+            {user && <span className="footer-link">Secure AI Workflow</span>}
+            <ContactSupportButton className="footer-link">Contact Support</ContactSupportButton>
+          </div>
           <p className="footer-meta">Built for Indian financial documentation</p>
         </div>
       </footer>

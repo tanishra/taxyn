@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     MAIL_FROM: str = "noreply@taxyn.ai"
     MAIL_PORT: int = 587
     MAIL_SERVER: str = "smtp.gmail.com"
+    SUPPORT_EMAIL: str = "tanishrajput9@gmail.com"
 
     # ─── Auth Config ───────────────────────────────────────────
     GOOGLE_CLIENT_ID: str = ""

@@ -61,6 +61,16 @@ class Container:
 
 container = Container()
 
+PROFILE_EXTRA_FIELDS = (
+    "contact_phone",
+    "designation",
+    "company_pan",
+    "address_line1",
+    "city",
+    "state",
+    "pincode",
+)
+
 # ── Auth Dependency ──────────────────────────────────────
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login", auto_error=False)
@@ -81,6 +91,17 @@ async def get_optional_user(token: Optional[str] = Depends(oauth2_scheme_optiona
     if not token_data:
         return None
     return await container.user_store.get_by_id(token_data.user_id)
+
+
+async def _get_profile_extra(user_id: str) -> dict:
+    profile = await container.repo.get(f"user_profile:{user_id}")
+    if isinstance(profile, dict):
+        return profile
+    return {}
+
+
+def _db_profile_fields(user: User) -> dict:
+    return {field: getattr(user, field, "") or "" for field in PROFILE_EXTRA_FIELDS}
 
 # ── App lifecycle ──────────────────────────────────────────
 @asynccontextmanager
@@ -183,13 +204,36 @@ async def google_login(token: str = Form(...)):
 
 @auth_router.get("/me")
 async def get_profile(user: User = Depends(get_current_user)):
-    return {"id": user.id, "email": user.email, "full_name": user.full_name, "company_name": user.company_name, "gstin": user.gstin}
+    profile_extra = _db_profile_fields(user)
+    # Backward compatibility for users whose profile extras are still in KV storage.
+    if not any(profile_extra.values()):
+        kv_profile_extra = await _get_profile_extra(user.id)
+        for field in PROFILE_EXTRA_FIELDS:
+            if kv_profile_extra.get(field):
+                profile_extra[field] = kv_profile_extra[field]
+    response = {
+        "id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "company_name": user.company_name,
+        "gstin": user.gstin,
+    }
+    for field in PROFILE_EXTRA_FIELDS:
+        response[field] = profile_extra.get(field, "")
+    return response
 
 @auth_router.put("/profile")
 async def update_profile(
     full_name: Optional[str] = Form(None), 
     company_name: Optional[str] = Form(None), 
     gstin: Optional[str] = Form(None),
+    contact_phone: Optional[str] = Form(None),
+    designation: Optional[str] = Form(None),
+    company_pan: Optional[str] = Form(None),
+    address_line1: Optional[str] = Form(None),
+    city: Optional[str] = Form(None),
+    state: Optional[str] = Form(None),
+    pincode: Optional[str] = Form(None),
     user: User = Depends(get_current_user)
 ):
     if full_name is not None:
@@ -198,8 +242,23 @@ async def update_profile(
         user.company_name = company_name
     if gstin is not None:
         user.gstin = gstin
-    
+
+    incoming_profile = {
+        "contact_phone": contact_phone,
+        "designation": designation,
+        "company_pan": company_pan,
+        "address_line1": address_line1,
+        "city": city,
+        "state": state,
+        "pincode": pincode,
+    }
+    for key, value in incoming_profile.items():
+        if value is not None:
+            setattr(user, key, value)
+
     await container.user_store.create_user(user) # merge update
+    profile_extra = _db_profile_fields(user)
+
     return {
         "status": "success",
         "message": "Profile updated",
@@ -209,6 +268,7 @@ async def update_profile(
             "full_name": user.full_name,
             "company_name": user.company_name,
             "gstin": user.gstin,
+            **profile_extra,
         },
     }
 
@@ -265,6 +325,41 @@ async def get_history_item(request_id: str, user: User = Depends(get_current_use
         "compliance_flags": trace.get("compliance_flags", []),
         "extracted_data": extracted_data,
     }
+
+
+@app.post("/api/v1/contact")
+async def submit_contact_message(
+    subject: str = Form(...),
+    message: str = Form(...),
+    name: Optional[str] = Form(None),
+    email: Optional[str] = Form(None),
+    user: Optional[User] = Depends(get_optional_user),
+):
+    final_name = (name or (user.full_name if user else "") or "").strip()
+    final_email = (email or (user.email if user else "") or "").strip()
+    final_subject = subject.strip()
+    final_message = message.strip()
+
+    if not final_email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    if not final_subject:
+        raise HTTPException(status_code=400, detail="Subject is required")
+    if not final_message:
+        raise HTTPException(status_code=400, detail="Message is required")
+
+    try:
+        await Mailer.send_contact_message(
+            sender_email=final_email,
+            sender_name=final_name or "Taxyn User",
+            subject=final_subject,
+            message_text=final_message,
+            user_id=user.id if user else "",
+        )
+    except Exception as e:
+        logger.error("contact.submit_failed", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to send message")
+
+    return {"status": "success", "message": "Your message has been sent"}
 
 # ── DOMAIN ROUTES ─────────────────────────────────────────
 
