@@ -7,6 +7,7 @@ Wires all components together using dependency injection.
 import structlog
 import uuid
 import random
+from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Response, APIRouter, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -40,8 +41,25 @@ logger = structlog.get_logger(__name__)
 # ── Dependency Container ──────────────────────────────────
 class Container:
     def __init__(self):
-        if settings.DATABASE_URL and settings.DATABASE_URL.startswith("postgresql"):
-            self.repo = SQLRepository(settings.DATABASE_URL)
+        db_url = (settings.DATABASE_URL or "").strip()
+        if db_url:
+            if db_url.startswith("postgres://"):
+                db_url = "postgresql+asyncpg://" + db_url[len("postgres://"):]
+            elif db_url.startswith("postgresql://"):
+                db_url = "postgresql+asyncpg://" + db_url[len("postgresql://"):]
+
+            # asyncpg expects `ssl`, while many managed DB URLs provide `sslmode`.
+            if db_url.startswith("postgresql+asyncpg://"):
+                parsed = urlparse(db_url)
+                query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+                if "sslmode" in query and "ssl" not in query:
+                    query["ssl"] = query.pop("sslmode")
+                # libpq-specific params that asyncpg does not accept.
+                query.pop("channel_binding", None)
+                query.pop("gssencmode", None)
+                query.pop("target_session_attrs", None)
+                db_url = urlunparse(parsed._replace(query=urlencode(query)))
+            self.repo = SQLRepository(db_url)
         else:
             self.repo = SQLRepository("sqlite+aiosqlite:///./taxyn.db")
 
