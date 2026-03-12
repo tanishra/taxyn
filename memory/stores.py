@@ -67,7 +67,15 @@ class DocumentBlob(Base):
 
 class SQLRepository(MemoryRepositoryInterface):
     def __init__(self, db_url: str):
-        self.engine = create_async_engine(db_url)
+        # pool_pre_ping: Checks if connection is alive before using it
+        # pool_recycle: Recycles connections every 5 mins to prevent timeout from server (Neon/AWS)
+        self.engine = create_async_engine(
+            db_url, 
+            pool_pre_ping=True, 
+            pool_recycle=300,
+            pool_size=10,
+            max_overflow=20
+        )
         self.async_session = sessionmaker(
             self.engine, expire_on_commit=False, class_=AsyncSession
         )

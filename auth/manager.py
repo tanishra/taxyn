@@ -15,7 +15,8 @@ from config.settings import settings
 
 # ── Security Config ──────────────────────────────────────────
 # Argon2 is superior to bcrypt for modern auth
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Explicitly set bcrypt backend to 'bcrypt' to avoid passlib auto-detection issues
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__backend="bcrypt")
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 # 24 hours
@@ -35,11 +36,15 @@ class SecurityManager:
 
     @staticmethod
     def hash_password(password: str) -> str:
-        return pwd_context.hash(password)
+        # Bcrypt has a 72-byte limit. Passlib usually handles this, 
+        # but explicit truncation prevents library-level ValueError crashes.
+        return pwd_context.hash(password[:72])
 
     @staticmethod
     def verify_password(plain_password: str, hashed_password: str) -> bool:
-        return pwd_context.verify(plain_password, hashed_password)
+        if not hashed_password:
+            return False
+        return pwd_context.verify(plain_password[:72], hashed_password)
 
     @staticmethod
     def create_access_token(data: dict) -> str:
