@@ -7,7 +7,7 @@ fastapi-mail==1.4.1
 # ─── AI / LLM ─────────────────────────────────────────────
 anthropic==0.34.0
 instructor==1.4.3          # Structured outputs from LLM (Pydantic-validated)
-litellm==1.44.0            # Model-agnostic LLM switching (OpenAI / Anthropic / Gemini)
+litellm==1.44.1            # Model-agnostic LLM switching (OpenAI / Anthropic / Gemini)
 
 # ─── Document Extraction ──────────────────────────────────
 docling==2.5.0             # IBM: PDF → clean structured text (best for tables/invoices)
