@@ -144,11 +144,32 @@ Be conservative with confidence scores."""
 
     def _default_fields(self, doc_type) -> list[str]:
         defaults = {
-            "invoice": ["invoice_number", "vendor_name", "amount", "gst_amount", "date", "due_date", "line_items"],
-            "gst_return": ["gstin", "period", "total_taxable_value", "igst", "cgst", "sgst"],
-            "bank_statement": ["account_number", "period", "opening_balance", "closing_balance", "transactions"],
-            "tds_certificate": ["pan", "deductor_name", "amount_paid", "tds_deducted", "period"],
-            "reconciliation": ["invoice_number", "vendor_gstin", "amount", "date", "vendor_name"]
+            "invoice": [
+                "invoice_number", "vendor_name", "supplier_gstin", "buyer_gstin",
+                "amount", "taxable_value", "gst_amount", "cgst", "sgst", "igst",
+                "gst_rate", "place_of_supply", "hsn_sac", "invoice_type",
+                "date", "due_date", "line_items"
+            ],
+            "gst_return": [
+                "return_type", "gstin", "period", "filing_date",
+                "b2b_taxable_value", "b2c_taxable_value", "export_taxable_value",
+                "total_taxable_value", "igst", "cgst", "sgst",
+                "tax_liability", "tax_paid", "interest_amount", "late_fee"
+            ],
+            "bank_statement": [
+                "bank_name", "account_holder_name", "account_number", "ifsc", "currency",
+                "period_start", "period_end", "period", "opening_balance", "closing_balance",
+                "transactions"
+            ],
+            "tds_certificate": [
+                "pan", "tan", "deductor_name", "section_code", "certificate_number",
+                "assessment_year", "period", "deduction_date", "challan_bsr",
+                "amount_paid", "tds_deducted"
+            ],
+            "reconciliation": [
+                "invoice_number", "vendor_name", "vendor_gstin", "invoice_date",
+                "amount", "taxable_value", "igst", "cgst", "sgst"
+            ]
         }
         key = str(doc_type).split(".")[-1].lower()
         return defaults.get(key, ["amount", "date", "reference_number"])

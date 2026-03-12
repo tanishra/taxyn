@@ -190,18 +190,19 @@ export const Uploader = () => {
     for (const [field, value] of filteredEntries) {
       const sheetName = safeSheetName(field);
       if (Array.isArray(value)) {
-        if (field === "transactions" && value.length > 0 && typeof value[0] === "object" && value[0] !== null) {
-          for (const tx of value as Record<string, unknown>[]) {
-            overviewRows.push({
-              Field: "transactions",
-              Value: "",
-              Details: "",
-              Date: toDisplayValue(tx.date),
-              Description: toDisplayValue(tx.description),
-              Debit: toDisplayValue(tx.debit),
-              Credit: toDisplayValue(tx.credit),
-              Balance: toDisplayValue(tx.balance),
-            });
+        if (value.length > 0 && typeof value[0] === "object" && value[0] !== null) {
+          const rows = value as Record<string, unknown>[];
+          const keys = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
+          for (let i = 0; i < rows.length; i += 1) {
+            const row = rows[i];
+            const overviewRow: Record<string, string | number | boolean> = {
+              Field: field,
+              Entry: i + 1,
+            };
+            for (const key of keys) {
+              overviewRow[key] = toDisplayValue(row[key]);
+            }
+            overviewRows.push(overviewRow);
           }
           continue;
         }
