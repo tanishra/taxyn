@@ -10,6 +10,13 @@ interface User {
   full_name: string;
   company_name?: string;
   gstin?: string;
+  contact_phone?: string;
+  designation?: string;
+  company_pan?: string;
+  address_line1?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
 }
 
 interface AuthContextType {

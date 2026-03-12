@@ -10,7 +10,7 @@ from typing import Any, List, Optional
 from datetime import datetime, UTC, timedelta
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy import Column, String, JSON, DateTime, LargeBinary, Boolean, select, delete
+from sqlalchemy import Column, String, JSON, DateTime, LargeBinary, Boolean, select, delete, text
 from agent.interfaces import MemoryRepositoryInterface
 
 logger = structlog.get_logger(__name__)
@@ -28,6 +28,13 @@ class User(Base):
     full_name = Column(String)
     company_name = Column(String, nullable=True)
     gstin = Column(String, nullable=True)
+    contact_phone = Column(String, nullable=True)
+    designation = Column(String, nullable=True)
+    company_pan = Column(String, nullable=True)
+    address_line1 = Column(String, nullable=True)
+    city = Column(String, nullable=True)
+    state = Column(String, nullable=True)
+    pincode = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
@@ -67,7 +74,45 @@ class SQLRepository(MemoryRepositoryInterface):
     async def init_db(self):
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            await self._ensure_user_profile_columns(conn)
         logger.info("sql_db.initialized")
+
+    async def _ensure_user_profile_columns(self, conn):
+        required_columns = {
+            "contact_phone": "VARCHAR",
+            "designation": "VARCHAR",
+            "company_pan": "VARCHAR",
+            "address_line1": "VARCHAR",
+            "city": "VARCHAR",
+            "state": "VARCHAR",
+            "pincode": "VARCHAR",
+        }
+
+        dialect = conn.dialect.name
+        if dialect == "sqlite":
+            result = await conn.execute(text("PRAGMA table_info('taxyn_users')"))
+            existing = {row[1] for row in result.fetchall()}
+            for column_name, column_type in required_columns.items():
+                if column_name not in existing:
+                    await conn.execute(text(f"ALTER TABLE taxyn_users ADD COLUMN {column_name} {column_type}"))
+            return
+
+        if dialect == "postgresql":
+            result = await conn.execute(
+                text(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'taxyn_users'
+                    """
+                )
+            )
+            existing = {row[0] for row in result.fetchall()}
+            for column_name, column_type in required_columns.items():
+                if column_name not in existing:
+                    await conn.execute(
+                        text(f"ALTER TABLE taxyn_users ADD COLUMN IF NOT EXISTS {column_name} {column_type}")
+                    )
 
     async def get(self, key: str) -> Any | None:
         async with self.async_session() as session:
