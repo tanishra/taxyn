@@ -93,7 +93,7 @@ cd taxyn
 pip install -r requirements.txt
 
 # 2. Configure Environment
-# Add DATABASE_URL (Neon Postgres recommended), OPENAI_API_KEY, SMTP settings, SUPPORT_EMAIL, and GOOGLE_CLIENT_ID to .env
+# Add DATABASE_URL (Neon Postgres recommended), OPENAI_API_KEY, HUGGINGFACE_TOKEN, SMTP settings, SUPPORT_EMAIL, and GOOGLE_CLIENT_ID to .env
 
 # 3. Run Backend
 python main.py
