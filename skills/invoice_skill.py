@@ -2,8 +2,7 @@
 invoice_skill.py — Invoice Processing Skill
 =============================================
 This skill knows HOW to process an invoice.
-It composes the 4 tools in the correct order.
-
+It composes the tools in the correct order.
 Think of it as a specialist who knows the invoice workflow:
 1. Read the document (Extractor)
 2. Pull out the fields (Parser)
@@ -23,6 +22,7 @@ from tools.extractor_tool import ExtractorTool
 from tools.parser_tool import ParserTool
 from tools.validator_tool import ValidatorTool
 from tools.confidence_scorer_tool import ConfidenceScorerTool
+from tools.qr_tool import QRTool
 
 logger = structlog.get_logger(__name__)
 
@@ -35,6 +35,7 @@ class InvoiceSkill(BaseSkill):
 
     def __init__(self):
         # Tools are injected as dependencies
+        self._qr = QRTool()
         self._extractor = ExtractorTool()
         self._parser = ParserTool()
         self._validator = ValidatorTool()
@@ -50,6 +51,10 @@ class InvoiceSkill(BaseSkill):
         Each tool result is appended to context for full traceability.
         """
         logger.info("invoice_skill.started", request_id=context.request_id)
+
+        # ── Step 0: Scan for e-Invoice QR Code ────────────
+        result = await self._qr.execute(context)
+        context.add_tool_result(result)
 
         # ── Step 1: Extract raw text from PDF ─────────────
         result = await self._extractor.execute(context)

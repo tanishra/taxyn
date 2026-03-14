@@ -102,6 +102,18 @@ class ValidatorTool(ToolInterface):
         if not data.get("vendor_name"):
             flags.append("MISSING_VENDOR_NAME: Vendor name not found")
 
+        # ── QR Integrity Check ──────────────────────────────────
+        qr_data = data.get("qr_data")
+        if qr_data:
+            qr_amt = self._to_float(qr_data.get("total_value"))
+            if qr_amt and amount and abs(qr_amt - amount) > 5.0:
+                flags.append(f"TAMPER_ALERT: QR Amount (₹{qr_amt}) differs from OCR Amount (₹{amount}). Possible fraud.")
+            
+            qr_gstin = str(qr_data.get("seller_gstin", "")).strip().upper()
+            ocr_gstin = str(data.get("supplier_gstin", "")).strip().upper()
+            if qr_gstin and ocr_gstin and qr_gstin != ocr_gstin:
+                flags.append(f"TAMPER_ALERT: QR Vendor GSTIN ({qr_gstin}) differs from printed GSTIN ({ocr_gstin}).")
+
         return flags
 
     # ── GST Return Validators ───────────────────────────────
