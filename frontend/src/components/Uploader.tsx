@@ -373,7 +373,7 @@ export const Uploader = () => {
                 <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "0.5rem" }}>
                   <h2 className="text-gradient" style={{ fontSize: "2rem" }}>Result</h2>
                   <span className={`status-badge ${isResolved || result.status === "completed" ? "status-completed" : "status-review"}`}>{isResolved ? "resolved" : result.status.replace("_", " ")}</span>
-                  {result.extracted_data?.qr_data && (
+                  {!!result.extracted_data?.qr_data && (
                     <span className="status-badge" style={{ background: "rgba(34, 197, 94, 0.2)", color: "#4ade80", border: "1px solid rgba(74, 222, 128, 0.3)" }}>
                       <CheckCircle size={14} style={{ display: "inline", marginRight: "0.25rem", verticalAlign: "text-bottom" }}/>
                       QR Verified
