@@ -60,8 +60,8 @@ export default function Home() {
             </div>
             <div className="info-card">
               <ShieldCheck size={18} />
-              <h3>Validation Layer</h3>
-              <p>Deterministic checks for GSTIN, PAN, date validity, and tax math.</p>
+              <h3>Digital Integrity Audit</h3>
+              <p>Cryptographic QR decoding to verify IRN and prevent invoice tampering.</p>
             </div>
             <div className="info-card">
               <Database size={18} />

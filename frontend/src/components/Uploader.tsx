@@ -6,7 +6,7 @@ import {
   Upload,
   Loader2, ArrowRight,
   Trash2, Download, ChevronDown,
-  Database, LogIn
+  Database, LogIn, CheckCircle, ShieldCheck
 } from "lucide-react";
 import axios from "axios";
 import * as XLSX from "xlsx";
@@ -373,6 +373,12 @@ export const Uploader = () => {
                 <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "0.5rem" }}>
                   <h2 className="text-gradient" style={{ fontSize: "2rem" }}>Result</h2>
                   <span className={`status-badge ${isResolved || result.status === "completed" ? "status-completed" : "status-review"}`}>{isResolved ? "resolved" : result.status.replace("_", " ")}</span>
+                  {result.extracted_data?.qr_data && (
+                    <span className="status-badge" style={{ background: "rgba(34, 197, 94, 0.2)", color: "#4ade80", border: "1px solid rgba(74, 222, 128, 0.3)" }}>
+                      <CheckCircle size={14} style={{ display: "inline", marginRight: "0.25rem", verticalAlign: "text-bottom" }}/>
+                      QR Verified
+                    </span>
+                  )}
                 </div>
                 <p style={{ color: "rgba(255,255,255,0.5)" }}>{result.filename}</p>
               </div>
@@ -383,6 +389,21 @@ export const Uploader = () => {
                 <div style={{ fontSize: "1.5rem", fontWeight: 800 }}>{confidencePercent.toFixed(0)}%</div>
               </div>
             </div>
+
+            {/* If tampering detected, show massive red warning */}
+            {result.compliance_flags?.some(f => f.includes("TAMPER_ALERT")) && (
+              <div style={{ padding: "1.5rem", borderRadius: "1rem", marginBottom: "2rem", border: "1px solid #ef4444", background: "rgba(239, 68, 68, 0.1)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+                  <ShieldCheck size={32} color="#ef4444" />
+                  <div>
+                    <h3 style={{ color: "#ef4444", fontWeight: 800, margin: 0, marginBottom: "0.25rem" }}>TAMPER ALERT: DIGITAL INTEGRITY FAILED</h3>
+                    <p style={{ margin: 0, fontSize: "0.875rem", opacity: 0.8 }}>
+                      The government QR code data does not match the printed text on this invoice. This document may be fraudulent.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {reconData && (
               <div style={{ padding: "1.5rem", borderRadius: "1rem", marginBottom: "2rem", border: "1px solid var(--primary)", background: "rgba(99, 102, 241, 0.05)" }}>
