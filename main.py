@@ -7,19 +7,20 @@ Wires all components together using dependency injection.
 import structlog
 import uuid
 import random
+import io # Added for pypdf
 from datetime import datetime
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Response, APIRouter, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Optional, List, Union # Added List, Union for return type
 from sqlalchemy import select, func, delete
 
 # ── Core Components ────────────────────────────────────────
 from agent.loop import AgentLoop
 from agent.planner import Planner
-from agent.context import Context, DocType
+from agent.context import Context, DocType, ProcessingStatus
 from skills.factory import SkillFactory
 from memory.stores import SQLRepository, InMemoryRepository, SchemaStore, CorrectionStore, AuditStore, DocumentStore, UserStore, User, StoreItem, DocumentBlob
 from output.serializer import ResponseSerializer
@@ -29,6 +30,7 @@ from api.channels.rest_adapter import RestAdapter
 from config.settings import settings
 from auth.manager import SecurityManager
 from auth.mailer import Mailer
+from tools.splitter_tool import SplitterTool # Import the new splitter tool
 
 # ── Logging setup ──────────────────────────────────────────
 structlog.configure(
@@ -78,6 +80,7 @@ class Container:
         planner = Planner(skill_factory, self.schema_store)
         self.agent_loop = AgentLoop(planner, self.serializer, self.hitl_queue, self.tracer)
         self.rest_adapter = RestAdapter(self.schema_store)
+        self.splitter_tool = SplitterTool()
 
 container = Container()
 
@@ -626,15 +629,60 @@ async def health():
 async def extract_document(
     file: UploadFile = File(...),
     tenant_id: Optional[str] = Form(default=None),
-    doc_type: str = Form(default="unknown"),
-    user: Optional[User] = Depends(get_optional_user)
-):
+    doc_type: DocType = Form(default=DocType.UNKNOWN), # Changed default to DocType.UNKNOWN
+    user: Optional[User] = Depends(get_optional_user),
+    request_id: Optional[str] = Form(default=None), # Added request_id
+) -> Union[dict, List[dict]]: # Changed return type hint
+    
+    # Read raw bytes from the uploaded file
+    raw_bytes = await file.read()
     filename = (file.filename or "").lower()
+
     if not filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
 
+    # Use existing request_id if provided (for split documents) or generate a new one
+    current_request_id = request_id or str(uuid.uuid4())
     resolved_tenant_id = user.id if user else (tenant_id or "public_demo")
-    context = await container.rest_adapter.parse_request({"file": file, "tenant_id": resolved_tenant_id, "doc_type": doc_type})
+
+    # If it's an invoice or unknown doc type, attempt to split the PDF
+    if doc_type in [DocType.INVOICE, DocType.UNKNOWN]:
+        # Attempt to split the document
+        split_documents = container.splitter_tool.split_document(raw_bytes)
+        
+        if len(split_documents) > 1:
+            # Process each split document
+            results = []
+            for i, split_doc_bytes in enumerate(split_documents):
+                # Generate a unique request_id for each split part
+                part_request_id = f"{current_request_id}-{i}"
+                
+                # Create a new context for each split document
+                # Pass file_bytes directly to rest_adapter.parse_request
+                context = await container.rest_adapter.parse_request(
+                    {
+                        "file_bytes": split_doc_bytes,
+                        "tenant_id": resolved_tenant_id,
+                        "doc_type": doc_type.value, # Pass the value of DocType
+                        "filename": f"{filename}_part{i}.pdf", # Generate unique filename
+                        "request_id": part_request_id,
+                    }
+                )
+                await container.document_store.save(context.request_id, context.raw_bytes)
+                processing_result = await container.agent_loop.run(context)
+                results.append(processing_result)
+            return results
+        
+    # Original logic for single document or non-splittable types
+    context = await container.rest_adapter.parse_request(
+        {
+            "file_bytes": raw_bytes, # Pass raw_bytes instead of UploadFile
+            "tenant_id": resolved_tenant_id,
+            "doc_type": doc_type.value, # Pass the value of DocType
+            "filename": filename,
+            "request_id": current_request_id,
+        }
+    )
     await container.document_store.save(context.request_id, context.raw_bytes)
     return await container.agent_loop.run(context)
 
