@@ -13,6 +13,7 @@ litellm==1.44.1            # Model-agnostic LLM switching (OpenAI / Anthropic / 
 docling==2.5.0             # IBM: PDF → clean structured text (best for tables/invoices)
 pdf2image==1.17.0          # PDF to Image for QR scanning
 pyzbar==0.1.9              # QR Code reader
+pypdf==4.2.0               # For splitting multi-page PDFs
 
 # ─── Data Validation & Typing ─────────────────────────────
 pydantic==2.8.2
@@ -32,7 +33,7 @@ redis==5.0.8               # Cache + HITL queue
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
-PyJWT==2.8.0
+PyJWT==2.8.0               # For decoding e-invoice JWT
 
 # ─── Observability ────────────────────────────────────────
 structlog==24.4.0          # Structured JSON logging
