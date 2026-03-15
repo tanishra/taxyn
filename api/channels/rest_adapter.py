@@ -11,8 +11,10 @@ This means the same AgentLoop can work for:
 - etc.
 """
 
-from fastapi import UploadFile
 import structlog
+import uuid # Added for generating request_id
+from typing import Optional
+from fastapi import UploadFile
 from agent.context import Context, DocType
 from agent.interfaces import ChannelInterface
 from memory.stores import SchemaStore
@@ -22,18 +24,28 @@ logger = structlog.get_logger(__name__)
 
 class RestAdapter(ChannelInterface):
     """
-    Converts HTTP multipart file upload into a Context object.
+    Converts HTTP multipart file upload into a Context object,
+    or directly processes raw_bytes for split documents.
     """
 
     def __init__(self, schema_store: SchemaStore):
         self._schema_store = schema_store
 
     async def parse_request(self, raw_input: dict) -> Context:
-        file: UploadFile = raw_input["file"]
         tenant_id: str = raw_input["tenant_id"]
         doc_type_hint: str = raw_input.get("doc_type", "unknown")
+        filename: str = raw_input.get("filename", "document.pdf")
+        request_id: str = raw_input.get("request_id") or str(uuid.uuid4()) # Use existing or generate new
 
-        raw_bytes = await file.read()
+        raw_bytes: bytes
+        if "file" in raw_input and isinstance(raw_input["file"], UploadFile):
+            raw_bytes = await raw_input["file"].read()
+            filename = raw_input["file"].filename or filename
+        elif "file_bytes" in raw_input and isinstance(raw_input["file_bytes"], bytes):
+            raw_bytes = raw_input["file_bytes"]
+        else:
+            raise ValueError("Either 'file' (UploadFile) or 'file_bytes' (bytes) must be provided")
+
 
         # Map string to DocType enum
         doc_type = DocType(doc_type_hint) if doc_type_hint in DocType._value2member_map_ else DocType.UNKNOWN
@@ -57,10 +69,11 @@ class RestAdapter(ChannelInterface):
         # ────────────────────────────────────────────────────────────────
 
         context = Context(
+            request_id=request_id, # Use generated or passed ID
             tenant_id=tenant_id,
             doc_type=doc_type,
             raw_bytes=raw_bytes,
-            filename=file.filename or "document.pdf",
+            filename=filename,
             extraction_schema=schema,
             metadata=metadata
         )
