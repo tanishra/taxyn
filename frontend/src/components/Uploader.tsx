@@ -51,7 +51,7 @@ export const Uploader = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [isPortalUploading, setIsPortalUploading] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [result, setResult] = useState<ExtractionResult | null>(null);
+  const [results, setResults] = useState<ExtractionResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isReviewOpen, setIsReviewOpen] = useState(false);
   const [isResolved, setIsResolved] = useState(false);
@@ -87,7 +87,7 @@ export const Uploader = () => {
     if (!file) return;
     setIsUploading(true);
     setError(null);
-    setResult(null);
+    setResults([]);
     setIsResolved(false);
 
     const formData = new FormData();
@@ -101,7 +101,7 @@ export const Uploader = () => {
       });
       setProgress(100);
       setTimeout(() => {
-        setResult(response.data);
+        setResults(Array.isArray(response.data) ? response.data : [response.data]);
         setIsUploading(false);
       }, 500);
     } catch (_err: unknown) {
@@ -133,15 +133,15 @@ export const Uploader = () => {
 
   const reset = () => {
     setFile(null);
-    setResult(null);
+    setResults([]);
     setError(null);
     setProgress(0);
     setIsReviewOpen(false);
     setIsResolved(false);
   };
 
-  const getFilteredData = () => {
-    const data = result?.extracted_data || result?.partial_data || {};
+  const getFilteredData = (resultItem: ExtractionResult) => {
+    const data = resultItem?.extracted_data || resultItem?.partial_data || {};
     const hideKeys = ["raw_text", "char_count", "recon_results", "portal_data"];
     return Object.entries(data).filter(([key]) => !hideKeys.includes(key));
   };
@@ -172,11 +172,11 @@ export const Uploader = () => {
     return String(value);
   };
 
-  const downloadExcel = () => {
-    if (!result) return;
+  const downloadExcel = (resultItem: ExtractionResult) => {
+    if (!resultItem) return;
     const wb = XLSX.utils.book_new();
     const hideKeys = ["raw_text", "char_count", "recon_results", "portal_data"];
-    const filteredEntries = Object.entries(result.extracted_data || {}).filter(([key]) => !hideKeys.includes(key));
+    const filteredEntries = Object.entries(resultItem.extracted_data || {}).filter(([key]) => !hideKeys.includes(key));
 
     const toDisplayValue = (value: unknown): string | number | boolean => {
       if (value === null || value === undefined) return "";
@@ -275,24 +275,13 @@ export const Uploader = () => {
       }
     }
 
-    XLSX.writeFile(wb, `${result.filename}_extraction.xlsx`);
+    XLSX.writeFile(wb, `${resultItem.filename}_extraction.xlsx`);
   };
-
-  const rawReconData = result?.extracted_data?.recon_results;
-  const reconData = (
-    rawReconData &&
-    typeof rawReconData === "object" &&
-    "is_matched" in rawReconData &&
-    "status" in rawReconData &&
-    "diff" in rawReconData
-  ) ? (rawReconData as ReconciliationResult) : null;
-  const confidencePercent = (isResolved ? 1.0 : result?.confidence || 0) * 100;
-  const confidenceRingStyle = { "--confidence": confidencePercent } as React.CSSProperties;
 
   return (
     <div className="uploader-container">
       <AnimatePresence mode="wait">
-        {!result ? (
+        {results.length === 0 ? (
           <motion.div key="upload" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}>
             
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "1.5rem", gap: "1rem", alignItems: "center" }}>
@@ -366,87 +355,109 @@ export const Uploader = () => {
             </div>
           </motion.div>
         ) : (
-          <motion.div key="result" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="result-card glass">
-            
-            <div className="result-header">
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "0.5rem" }}>
-                  <h2 className="text-gradient" style={{ fontSize: "2rem" }}>Result</h2>
-                  <span className={`status-badge ${isResolved || result.status === "completed" ? "status-completed" : "status-review"}`}>{isResolved ? "resolved" : result.status.replace("_", " ")}</span>
-                  {!!result.extracted_data?.qr_data && (
-                    <span className="status-badge" style={{ background: "rgba(34, 197, 94, 0.2)", color: "#4ade80", border: "1px solid rgba(74, 222, 128, 0.3)" }}>
-                      <CheckCircle size={14} style={{ display: "inline", marginRight: "0.25rem", verticalAlign: "text-bottom" }}/>
-                      QR Verified
-                    </span>
+          <motion.div key="resultsDisplay" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col gap-8">
+            {results.map((resultItem, index) => {
+              const itemRawReconData = resultItem?.extracted_data?.recon_results;
+              const itemReconData = (
+                itemRawReconData &&
+                typeof itemRawReconData === "object" &&
+                "is_matched" in itemRawReconData &&
+                "status" in itemRawReconData &&
+                "diff" in itemRawReconData
+              ) ? (itemRawReconData as ReconciliationResult) : null;
+              const itemConfidencePercent = (isResolved ? 1.0 : resultItem?.confidence || 0) * 100;
+              const itemConfidenceRingStyle = { "--confidence": itemConfidencePercent } as React.CSSProperties;
+
+              return (
+                <motion.div key={resultItem.request_id || index} className="result-card glass">
+                  <div className="result-header">
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "0.5rem" }}>
+                        <h2 className="text-gradient" style={{ fontSize: "2rem" }}>Result {results.length > 1 ? `#${index + 1}` : ''}</h2>
+                        <span className={`status-badge ${isResolved || resultItem.status === "completed" ? "status-completed" : "status-review"}`}>{isResolved ? "resolved" : resultItem.status.replace("_", " ")}</span>
+                        {!!resultItem.extracted_data?.qr_data && (
+                          <span className="status-badge" style={{ background: "rgba(34, 197, 94, 0.2)", color: "#4ade80", border: "1px solid rgba(74, 222, 128, 0.3)" }}>
+                            <CheckCircle size={14} style={{ display: "inline", marginRight: "0.25rem", verticalAlign: "text-bottom" }}/>
+                            QR Verified
+                          </span>
+                        )}
+                         {resultItem.compliance_flags?.some(f => f.includes("TAMPER_ALERT")) && (
+                          <span className="status-badge" style={{ background: "rgba(239, 68, 68, 0.2)", color: "#ef4444", border: "1px solid rgba(239, 68, 68, 0.3)" }}>
+                            <ShieldCheck size={14} style={{ display: "inline", marginRight: "0.25rem", verticalAlign: "text-bottom" }}/>
+                            TAMPER ALERT
+                          </span>
+                        )}
+                      </div>
+                      <p style={{ color: "rgba(255,255,255,0.5)" }}>{resultItem.filename}</p>
+                    </div>
+                    <div
+                      className="confidence-ring"
+                      style={itemConfidenceRingStyle}
+                    >
+                      <div style={{ fontSize: "1.5rem", fontWeight: 800 }}>{itemConfidencePercent.toFixed(0)}%</div>
+                    </div>
+                  </div>
+
+                  {/* If tampering detected, show massive red warning */}
+                  {resultItem.compliance_flags?.some(f => f.includes("TAMPER_ALERT")) && (
+                    <div style={{ padding: "1.5rem", borderRadius: "1rem", marginBottom: "2rem", border: "1px solid #ef4444", background: "rgba(239, 68, 68, 0.1)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+                        <ShieldCheck size={32} color="#ef4444" />
+                        <div>
+                          <h3 style={{ color: "#ef4444", fontWeight: 800, margin: 0, marginBottom: "0.25rem" }}>TAMPER ALERT: DIGITAL INTEGRITY FAILED</h3>
+                          <p style={{ margin: 0, fontSize: "0.875rem", opacity: 0.8 }}>
+                            The government QR code data does not match the printed text on this invoice. This document may be fraudulent.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                   )}
-                </div>
-                <p style={{ color: "rgba(255,255,255,0.5)" }}>{result.filename}</p>
-              </div>
-              <div
-                className="confidence-ring"
-                style={confidenceRingStyle}
-              >
-                <div style={{ fontSize: "1.5rem", fontWeight: 800 }}>{confidencePercent.toFixed(0)}%</div>
-              </div>
-            </div>
 
-            {/* If tampering detected, show massive red warning */}
-            {result.compliance_flags?.some(f => f.includes("TAMPER_ALERT")) && (
-              <div style={{ padding: "1.5rem", borderRadius: "1rem", marginBottom: "2rem", border: "1px solid #ef4444", background: "rgba(239, 68, 68, 0.1)" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-                  <ShieldCheck size={32} color="#ef4444" />
-                  <div>
-                    <h3 style={{ color: "#ef4444", fontWeight: 800, margin: 0, marginBottom: "0.25rem" }}>TAMPER ALERT: DIGITAL INTEGRITY FAILED</h3>
-                    <p style={{ margin: 0, fontSize: "0.875rem", opacity: 0.8 }}>
-                      The government QR code data does not match the printed text on this invoice. This document may be fraudulent.
-                    </p>
+                  {itemReconData && (
+                    <div style={{ padding: "1.5rem", borderRadius: "1rem", marginBottom: "2rem", border: "1px solid var(--primary)", background: "rgba(99, 102, 241, 0.05)" }}>
+                      <h3 style={{ fontWeight: 700, marginBottom: "1rem" }}>Portal Reconciliation</h3>
+                      <div style={{ display: "flex", gap: "2rem" }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: "0.7rem", opacity: 0.5 }}>STATUS</div>
+                          <div style={{ fontWeight: 800, color: itemReconData.is_matched ? "var(--success)" : "var(--warning)" }}>{itemReconData.status}</div>
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: "0.7rem", opacity: 0.5 }}>DIFFERENCE</div>
+                          <div style={{ fontWeight: 800 }}>₹{itemReconData.diff.toLocaleString()}</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="extraction-table-container">
+                    <table className="extraction-table">
+                      <thead><tr><th>Field</th><th>Value</th></tr></thead>
+                      <tbody>{getFilteredData(resultItem).map(([k, v]) => <tr key={k}><td className="field-name-cell">{k.replace(/_/g, " ")}</td><td className="field-value-cell">{renderValue(v)}</td></tr>)}</tbody>
+                    </table>
                   </div>
-                </div>
-              </div>
-            )}
 
-            {reconData && (
-              <div style={{ padding: "1.5rem", borderRadius: "1rem", marginBottom: "2rem", border: "1px solid var(--primary)", background: "rgba(99, 102, 241, 0.05)" }}>
-                <h3 style={{ fontWeight: 700, marginBottom: "1rem" }}>Portal Reconciliation</h3>
-                <div style={{ display: "flex", gap: "2rem" }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: "0.7rem", opacity: 0.5 }}>STATUS</div>
-                    <div style={{ fontWeight: 800, color: reconData.is_matched ? "var(--success)" : "var(--warning)" }}>{reconData.status}</div>
+                  <div style={{ marginTop: "3rem", display: "flex", gap: "1rem" }}>
+                    {resultItem.status === "needs_review" && !isResolved && (
+                      <button className="btn btn-primary" onClick={() => setIsReviewOpen(true)}>
+                        Manual Review
+                      </button>
+                    )}
+                    <button className="btn btn-secondary" onClick={() => downloadExcel(resultItem)}><Download size={18} /> Excel</button>
+                    <button className="btn btn-secondary" onClick={reset}><Trash2 size={18} /> New</button>
                   </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: "0.7rem", opacity: 0.5 }}>DIFFERENCE</div>
-                    <div style={{ fontWeight: 800 }}>₹{reconData.diff.toLocaleString()}</div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="extraction-table-container">
-              <table className="extraction-table">
-                <thead><tr><th>Field</th><th>Value</th></tr></thead>
-                <tbody>{getFilteredData().map(([k, v]) => <tr key={k}><td className="field-name-cell">{k.replace(/_/g, " ")}</td><td className="field-value-cell">{renderValue(v)}</td></tr>)}</tbody>
-              </table>
-            </div>
-
-            <div style={{ marginTop: "3rem", display: "flex", gap: "1rem" }}>
-              {result.status === "needs_review" && !isResolved && (
-                <button className="btn btn-primary" onClick={() => setIsReviewOpen(true)}>
-                  Manual Review
-                </button>
-              )}
-              <button className="btn btn-secondary" onClick={downloadExcel}><Download size={18} /> Excel</button>
-              <button className="btn btn-secondary" onClick={reset}><Trash2 size={18} /> New</button>
-            </div>
+                </motion.div>
+              );
+            })}
           </motion.div>
         )}
       </AnimatePresence>
 
-      {result && (
+      {results.length > 0 && (
         <ReviewModal
           isOpen={isReviewOpen}
           onClose={() => setIsReviewOpen(false)}
-          data={(result.partial_data || result.extracted_data || {}) as Record<string, unknown>}
-          requestId={result.request_id}
+          data={(results[0].partial_data || results[0].extracted_data || {}) as Record<string, unknown>}
+          requestId={results[0].request_id}
           onResolved={() => {
             setIsResolved(true);
             setIsReviewOpen(false);
