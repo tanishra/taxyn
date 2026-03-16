@@ -73,7 +73,7 @@ function LoginContent() {
         formData.append("token", tokenResponse.access_token);
         const res = await axios.post(apiUrl("/api/v1/auth/google"), formData);
         login(res.data.access_token);
-      } catch (_err) {
+      } catch {
         setError("Google Login failed. Please try again.");
       } finally {
         setIsLoading(false);

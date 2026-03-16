@@ -39,6 +39,18 @@ export const ReviewModal = ({ isOpen, onClose, data, requestId, onResolved }: Re
     }
   };
 
+  const updateField = (key: string, rawValue: string, parseAsJson: boolean) => {
+    let nextValue: unknown = rawValue;
+    if (parseAsJson) {
+      try {
+        nextValue = JSON.parse(rawValue);
+      } catch {
+        nextValue = rawValue;
+      }
+    }
+    setFormData((current) => ({ ...current, [key]: nextValue }));
+  };
+
   return (
     <div style={{
       position: "fixed", inset: 0, zIndex: 2000, 
@@ -81,7 +93,7 @@ export const ReviewModal = ({ isOpen, onClose, data, requestId, onResolved }: Re
             </div>
             <div style={{ flex: 1, borderRadius: "1rem", overflow: "hidden", background: "#333", position: "relative" }}>
               <iframe 
-                src={apiUrl(`/api/v1/document/${requestId}`)}
+                src={apiUrl(`/api/v1/document/${requestId}${token ? `?token=${encodeURIComponent(token)}` : ""}`)}
                 style={{ width: "100%", height: "100%", border: "none" }}
                 title="Document Preview"
               />
@@ -103,17 +115,29 @@ export const ReviewModal = ({ isOpen, onClose, data, requestId, onResolved }: Re
                   }}>
                     {key.replace(/_/g, " ")}
                   </label>
-                  <input 
-                    type="text"
-                    defaultValue={String(value)}
-                    onBlur={(e) => setFormData({ ...formData, [key]: e.target.value })}
-                    style={{ 
-                      width: "100%", padding: "1rem", background: "rgba(255,255,255,0.05)",
-                      border: "1px solid var(--glass-border)", borderRadius: "0.75rem",
-                      color: "#fff", fontWeight: 600, outline: "none",
-                      transition: "all 0.2s ease"
-                    }}
-                  />
+                  {typeof value === "object" && value !== null ? (
+                    <textarea
+                      defaultValue={JSON.stringify(value, null, 2)}
+                      onBlur={(e) => updateField(key, e.target.value, true)}
+                      style={{
+                        width: "100%", minHeight: "160px", padding: "1rem", background: "rgba(255,255,255,0.05)",
+                        border: "1px solid var(--glass-border)", borderRadius: "0.75rem",
+                        color: "#fff", fontWeight: 500, outline: "none", resize: "vertical", fontFamily: "monospace"
+                      }}
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      defaultValue={String(value ?? "")}
+                      onBlur={(e) => updateField(key, e.target.value, false)}
+                      style={{
+                        width: "100%", padding: "1rem", background: "rgba(255,255,255,0.05)",
+                        border: "1px solid var(--glass-border)", borderRadius: "0.75rem",
+                        color: "#fff", fontWeight: 600, outline: "none",
+                        transition: "all 0.2s ease"
+                      }}
+                    />
+                  )}
                 </div>
               ))}
             </div>

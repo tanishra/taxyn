@@ -54,7 +54,8 @@ export const Uploader = () => {
   const [results, setResults] = useState<ExtractionResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isReviewOpen, setIsReviewOpen] = useState(false);
-  const [isResolved, setIsResolved] = useState(false);
+  const [resolvedRequestIds, setResolvedRequestIds] = useState<string[]>([]);
+  const [reviewTarget, setReviewTarget] = useState<ExtractionResult | null>(null);
 
   // Simulate progress
   useEffect(() => {
@@ -88,7 +89,7 @@ export const Uploader = () => {
     setIsUploading(true);
     setError(null);
     setResults([]);
-    setIsResolved(false);
+    setResolvedRequestIds([]);
 
     const formData = new FormData();
     formData.append("file", file);
@@ -104,8 +105,9 @@ export const Uploader = () => {
         setResults(Array.isArray(response.data) ? response.data : [response.data]);
         setIsUploading(false);
       }, 500);
-    } catch (_err: unknown) {
-      setError("Server Error. Make sure backend is running on port 8000.");
+    } catch (err: unknown) {
+      const apiErr = err as ApiError;
+      setError(apiErr.response?.data?.detail || "Server Error. Make sure backend is running on port 8000.");
       setIsUploading(false);
     }
   };
@@ -137,7 +139,8 @@ export const Uploader = () => {
     setError(null);
     setProgress(0);
     setIsReviewOpen(false);
-    setIsResolved(false);
+    setResolvedRequestIds([]);
+    setReviewTarget(null);
   };
 
   const getFilteredData = (resultItem: ExtractionResult) => {
@@ -353,6 +356,11 @@ export const Uploader = () => {
                 </motion.button>
               )}
             </div>
+            {error && (
+              <div style={{ marginTop: "1rem", padding: "0.9rem 1rem", borderRadius: "0.85rem", border: "1px solid rgba(239,68,68,0.35)", background: "rgba(239,68,68,0.12)", color: "#fca5a5" }}>
+                {error}
+              </div>
+            )}
           </motion.div>
         ) : (
           <motion.div key="resultsDisplay" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col gap-8">
@@ -365,7 +373,8 @@ export const Uploader = () => {
                 "status" in itemRawReconData &&
                 "diff" in itemRawReconData
               ) ? (itemRawReconData as ReconciliationResult) : null;
-              const itemConfidencePercent = (isResolved ? 1.0 : resultItem?.confidence || 0) * 100;
+              const itemResolved = resolvedRequestIds.includes(resultItem.request_id);
+              const itemConfidencePercent = (itemResolved ? 1.0 : resultItem?.confidence || 0) * 100;
               const itemConfidenceRingStyle = { "--confidence": itemConfidencePercent } as React.CSSProperties;
 
               return (
@@ -374,7 +383,7 @@ export const Uploader = () => {
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "0.5rem" }}>
                         <h2 className="text-gradient" style={{ fontSize: "2rem" }}>Result {results.length > 1 ? `#${index + 1}` : ''}</h2>
-                        <span className={`status-badge ${isResolved || resultItem.status === "completed" ? "status-completed" : "status-review"}`}>{isResolved ? "resolved" : resultItem.status.replace("_", " ")}</span>
+                        <span className={`status-badge ${itemResolved || resultItem.status === "completed" ? "status-completed" : "status-review"}`}>{itemResolved ? "resolved" : resultItem.status.replace("_", " ")}</span>
                         {!!resultItem.extracted_data?.qr_data && (
                           <span className="status-badge" style={{ background: "rgba(34, 197, 94, 0.2)", color: "#4ade80", border: "1px solid rgba(74, 222, 128, 0.3)" }}>
                             <CheckCircle size={14} style={{ display: "inline", marginRight: "0.25rem", verticalAlign: "text-bottom" }}/>
@@ -437,8 +446,14 @@ export const Uploader = () => {
                   </div>
 
                   <div style={{ marginTop: "3rem", display: "flex", gap: "1rem" }}>
-                    {resultItem.status === "needs_review" && !isResolved && (
-                      <button className="btn btn-primary" onClick={() => setIsReviewOpen(true)}>
+                    {resultItem.status === "needs_review" && !itemResolved && (
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => {
+                          setReviewTarget(resultItem);
+                          setIsReviewOpen(true);
+                        }}
+                      >
                         Manual Review
                       </button>
                     )}
@@ -452,15 +467,16 @@ export const Uploader = () => {
         )}
       </AnimatePresence>
 
-      {results.length > 0 && (
+      {reviewTarget && (
         <ReviewModal
           isOpen={isReviewOpen}
           onClose={() => setIsReviewOpen(false)}
-          data={(results[0].partial_data || results[0].extracted_data || {}) as Record<string, unknown>}
-          requestId={results[0].request_id}
+          data={(reviewTarget.partial_data || reviewTarget.extracted_data || {}) as Record<string, unknown>}
+          requestId={reviewTarget.request_id}
           onResolved={() => {
-            setIsResolved(true);
+            setResolvedRequestIds((current) => [...current, reviewTarget.request_id]);
             setIsReviewOpen(false);
+            setReviewTarget(null);
           }}
         />
       )}

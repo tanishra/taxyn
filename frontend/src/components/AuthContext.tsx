@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { useRouter } from "next/navigation";
 import { apiUrl } from "@/lib/api";
@@ -38,47 +38,47 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
-  useEffect(() => {
-    const savedToken = localStorage.getItem("taxyn_token");
-    if (savedToken) {
-      setToken(savedToken);
-      fetchProfile(savedToken);
-    } else {
-      setIsLoading(false);
-    }
-  }, []);
+  const logout = useCallback(() => {
+    localStorage.removeItem("taxyn_token");
+    setToken(null);
+    setUser(null);
+    router.push("/auth/login");
+  }, [router]);
 
-  const fetchProfile = async (t: string) => {
+  const fetchProfile = useCallback(async (t: string) => {
     try {
       const res = await axios.get(apiUrl("/api/v1/auth/me"), {
         headers: { Authorization: `Bearer ${t}` }
       });
       setUser(res.data);
-    } catch (err) {
+    } catch {
       logout();
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [logout]);
 
-  const login = (newToken: string) => {
+  useEffect(() => {
+    const savedToken = localStorage.getItem("taxyn_token");
+    if (savedToken) {
+      setToken(savedToken);
+      void fetchProfile(savedToken);
+    } else {
+      setIsLoading(false);
+    }
+  }, [fetchProfile]);
+
+  const login = useCallback((newToken: string) => {
     localStorage.setItem("taxyn_token", newToken);
     setToken(newToken);
-    fetchProfile(newToken);
+    void fetchProfile(newToken);
     router.push("/");
-  };
+  }, [fetchProfile, router]);
 
-  const logout = () => {
-    localStorage.removeItem("taxyn_token");
-    setToken(null);
-    setUser(null);
-    router.push("/auth/login");
-  };
-
-  const refreshProfile = async () => {
+  const refreshProfile = useCallback(async () => {
     if (!token) return;
     await fetchProfile(token);
-  };
+  }, [fetchProfile, token]);
 
   return (
     <AuthContext.Provider value={{ user, token, login, logout, refreshProfile, isLoading }}>

@@ -74,7 +74,7 @@ export default function ProfilePage() {
       });
       await refreshProfile();
       setMessage("Profile updated successfully!");
-    } catch (_err) {
+    } catch {
       setMessage("Failed to update profile.");
     } finally {
       setIsSaving(false);

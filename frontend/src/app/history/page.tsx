@@ -63,7 +63,7 @@ export default function HistoryPage() {
           confidence: row.confidence ?? row.overall_confidence ?? 0,
         }));
         if (!cancelled) setHistory(rows);
-      } catch (_err) {
+      } catch {
         console.error("Failed to fetch history");
       }
     };
@@ -89,7 +89,7 @@ export default function HistoryPage() {
         extracted_data: payload.extracted_data || {},
         compliance_flags: Array.isArray(payload.compliance_flags) ? payload.compliance_flags : [],
       });
-    } catch (_err) {
+    } catch {
       console.error("Failed to load history details");
     } finally {
       setOpeningRequestId(null);

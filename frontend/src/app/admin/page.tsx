@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { Navbar } from "@/components/Navbar";
 import { useAuth } from "@/components/AuthContext";
@@ -66,7 +66,7 @@ export default function AdminPage() {
 
   const headers = useMemo(() => (token ? { Authorization: `Bearer ${token}` } : undefined), [token]);
 
-  const loadAll = async () => {
+  const loadAll = useCallback(async () => {
     if (!headers) return;
     const [overviewRes, usersRes, feedbackRes] = await Promise.all([
       axios.get(apiUrl("/api/v1/admin/overview"), { headers }),
@@ -76,13 +76,14 @@ export default function AdminPage() {
     setOverview(overviewRes.data);
     setUsers(Array.isArray(usersRes.data) ? usersRes.data : []);
     setFeedback(Array.isArray(feedbackRes.data) ? feedbackRes.data : []);
-  };
+  }, [headers]);
 
   useEffect(() => {
     if (!token || !user?.is_admin) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadAll();
-  }, [token, user?.is_admin]);
+    queueMicrotask(() => {
+      void loadAll();
+    });
+  }, [loadAll, token, user?.is_admin]);
 
   const loadUserHistory = async (u: AdminUser) => {
     if (!headers) return;
@@ -327,7 +328,10 @@ export default function AdminPage() {
       {selectedHistory && (
         <div style={{ position: "fixed", inset: 0, zIndex: 2000, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
           <div className="glass" style={{ width: "min(1200px, 97vw)", height: "85vh", borderRadius: "1rem", overflow: "hidden", display: "grid", gridTemplateColumns: "1fr 1fr" }}>
-            <iframe src={apiUrl(`/api/v1/document/${selectedHistory.request_id}`)} style={{ width: "100%", height: "100%", border: "none" }} />
+            <iframe
+              src={apiUrl(`/api/v1/document/${selectedHistory.request_id}${token ? `?token=${encodeURIComponent(token)}` : ""}`)}
+              style={{ width: "100%", height: "100%", border: "none" }}
+            />
             <div style={{ padding: "1rem", overflow: "auto" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.7rem" }}>
                 <h3>Extracted Data</h3>
