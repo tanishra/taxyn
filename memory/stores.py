@@ -58,6 +58,8 @@ class DocumentBlob(Base):
     """Table to store raw PDF bytes for rendering."""
     __tablename__ = "taxyn_documents"
     request_id = Column(String, primary_key=True)
+    tenant_id = Column(String, index=True, nullable=True)
+    filename = Column(String, nullable=True)
     content = Column(LargeBinary)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
@@ -67,15 +69,16 @@ class DocumentBlob(Base):
 
 class SQLRepository(MemoryRepositoryInterface):
     def __init__(self, db_url: str):
-        # pool_pre_ping: Checks if connection is alive before using it
-        # pool_recycle: Recycles connections every 5 mins to prevent timeout from server (Neon/AWS)
-        self.engine = create_async_engine(
-            db_url, 
-            pool_pre_ping=True, 
-            pool_recycle=300,
-            pool_size=10,
-            max_overflow=20
-        )
+        engine_kwargs = {"pool_pre_ping": True}
+        if "sqlite" not in db_url:
+            engine_kwargs.update(
+                {
+                    "pool_recycle": 300,
+                    "pool_size": 10,
+                    "max_overflow": 20,
+                }
+            )
+        self.engine = create_async_engine(db_url, **engine_kwargs)
         self.async_session = sessionmaker(
             self.engine, expire_on_commit=False, class_=AsyncSession
         )
@@ -84,6 +87,7 @@ class SQLRepository(MemoryRepositoryInterface):
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
             await self._ensure_user_profile_columns(conn)
+            await self._ensure_document_columns(conn)
         logger.info("sql_db.initialized")
 
     async def _ensure_user_profile_columns(self, conn):
@@ -124,6 +128,38 @@ class SQLRepository(MemoryRepositoryInterface):
                         text(f"ALTER TABLE taxyn_users ADD COLUMN IF NOT EXISTS {column_name} {column_type}")
                     )
 
+    async def _ensure_document_columns(self, conn):
+        required_columns = {
+            "tenant_id": "VARCHAR",
+            "filename": "VARCHAR",
+        }
+
+        dialect = conn.dialect.name
+        if dialect == "sqlite":
+            result = await conn.execute(text("PRAGMA table_info('taxyn_documents')"))
+            existing = {row[1] for row in result.fetchall()}
+            for column_name, column_type in required_columns.items():
+                if column_name not in existing:
+                    await conn.execute(text(f"ALTER TABLE taxyn_documents ADD COLUMN {column_name} {column_type}"))
+            return
+
+        if dialect == "postgresql":
+            result = await conn.execute(
+                text(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'taxyn_documents'
+                    """
+                )
+            )
+            existing = {row[0] for row in result.fetchall()}
+            for column_name, column_type in required_columns.items():
+                if column_name not in existing:
+                    await conn.execute(
+                        text(f"ALTER TABLE taxyn_documents ADD COLUMN IF NOT EXISTS {column_name} {column_type}")
+                    )
+
     async def get(self, key: str) -> Any | None:
         async with self.async_session() as session:
             result = await session.execute(select(StoreItem).where(StoreItem.key == key))
@@ -146,9 +182,20 @@ class SQLRepository(MemoryRepositoryInterface):
             result = await session.execute(select(StoreItem).where(StoreItem.tags == tag))
             return [item.value for item in result.scalars().all()]
 
-    async def save_blob(self, request_id: str, content: bytes) -> None:
+    async def save_blob(
+        self,
+        request_id: str,
+        content: bytes,
+        tenant_id: str | None = None,
+        filename: str | None = None,
+    ) -> None:
         async with self.async_session() as session:
-            blob = DocumentBlob(request_id=request_id, content=content)
+            blob = DocumentBlob(
+                request_id=request_id,
+                tenant_id=tenant_id,
+                filename=filename,
+                content=content,
+            )
             await session.merge(blob)
             await session.commit()
 
@@ -157,6 +204,19 @@ class SQLRepository(MemoryRepositoryInterface):
             result = await session.execute(select(DocumentBlob).where(DocumentBlob.request_id == request_id))
             blob = result.scalar_one_or_none()
             return blob.content if blob else None
+
+    async def get_blob_meta(self, request_id: str) -> dict[str, Any] | None:
+        async with self.async_session() as session:
+            result = await session.execute(select(DocumentBlob).where(DocumentBlob.request_id == request_id))
+            blob = result.scalar_one_or_none()
+            if not blob:
+                return None
+            return {
+                "request_id": blob.request_id,
+                "tenant_id": blob.tenant_id,
+                "filename": blob.filename,
+                "created_at": blob.created_at.isoformat() if blob.created_at else None,
+            }
 
     # ── User Operations ──
     async def save_user(self, user: User):
@@ -220,8 +280,8 @@ class SQLRepository(MemoryRepositoryInterface):
 class InMemoryRepository(MemoryRepositoryInterface):
     def __init__(self):
         self._store: dict[str, Any] = {}
-        self._tags: dict[str, list[dict]] = {}
-        self._blobs: dict[str, bytes] = {}
+        self._tags: dict[str, dict[str, Any]] = {}
+        self._blobs: dict[str, Any] = {}
         self._users: dict[str, User] = {}
         self._otps: dict[str, tuple[str, datetime]] = {}
 
@@ -229,12 +289,43 @@ class InMemoryRepository(MemoryRepositoryInterface):
     async def set(self, key: str, value: Any, tags: str = None) -> None:
         self._store[key] = value
         if tags:
-            if tags not in self._tags: self._tags[tags] = []
-            self._tags[tags].append(value)
-    async def delete(self, key: str) -> None: self._store.pop(key, None)
-    async def get_by_tag(self, tag: str) -> list[dict]: return self._tags.get(tag, [])
-    async def save_blob(self, request_id: str, content: bytes) -> None: self._blobs[request_id] = content
-    async def get_blob(self, request_id: str) -> bytes | None: return self._blobs.get(request_id)
+            if tags not in self._tags:
+                self._tags[tags] = {}
+            self._tags[tags][key] = value
+    async def delete(self, key: str) -> None:
+        self._store.pop(key, None)
+        for tagged_items in self._tags.values():
+            tagged_items.pop(key, None)
+    async def get_by_tag(self, tag: str) -> list[dict]:
+        return list(self._tags.get(tag, {}).values())
+    async def save_blob(
+        self,
+        request_id: str,
+        content: bytes,
+        tenant_id: str | None = None,
+        filename: str | None = None,
+    ) -> None:
+        self._blobs[request_id] = {
+            "content": content,
+            "tenant_id": tenant_id,
+            "filename": filename,
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+    async def get_blob(self, request_id: str) -> bytes | None:
+        blob = self._blobs.get(request_id)
+        if isinstance(blob, dict):
+            return blob.get("content")
+        return blob
+    async def get_blob_meta(self, request_id: str) -> dict[str, Any] | None:
+        blob = self._blobs.get(request_id)
+        if not blob:
+            return None
+        return {
+            "request_id": request_id,
+            "tenant_id": blob.get("tenant_id"),
+            "filename": blob.get("filename"),
+            "created_at": blob.get("created_at"),
+        }
     async def save_user(self, user: User): self._users[user.email] = user
     async def get_user_by_email(self, email: str): return self._users.get(email)
     async def get_user_by_id(self, user_id: str): 
@@ -372,8 +463,19 @@ class AuditStore:
 
 class DocumentStore:
     def __init__(self, repo: MemoryRepositoryInterface): self._repo = repo
-    async def save(self, request_id: str, content: bytes) -> None:
-        if hasattr(self._repo, 'save_blob'): await self._repo.save_blob(request_id, content)
+    async def save(
+        self,
+        request_id: str,
+        content: bytes,
+        tenant_id: str | None = None,
+        filename: str | None = None,
+    ) -> None:
+        if hasattr(self._repo, 'save_blob'):
+            await self._repo.save_blob(request_id, content, tenant_id=tenant_id, filename=filename)
     async def get(self, request_id: str) -> bytes | None:
         if hasattr(self._repo, 'get_blob'): return await self._repo.get_blob(request_id)
+        return None
+    async def get_meta(self, request_id: str) -> dict | None:
+        if hasattr(self._repo, 'get_blob_meta'):
+            return await self._repo.get_blob_meta(request_id)
         return None
