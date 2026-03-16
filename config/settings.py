@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     REDIS_URL: str = ""
 
     CONFIDENCE_THRESHOLD: float = 0.85
+    MAX_UPLOAD_SIZE_MB: int = 25
+    CORS_ORIGINS: str = ""
+    ALLOW_PUBLIC_DEMO: bool = True
 
     # ─── Mail Config ───────────────────────────────────────────
     MAIL_USERNAME: str = ""
@@ -29,6 +32,11 @@ class Settings(BaseSettings):
     # ─── Auth Config ───────────────────────────────────────────
     GOOGLE_CLIENT_ID: str = ""
     ADMIN_EMAILS: str = ""
+
+    @property
+    def cors_origins(self) -> list[str]:
+        values = [item.strip() for item in (self.CORS_ORIGINS or "").split(",")]
+        return [item for item in values if item]
 
     class Config:
         env_file = ".env"
