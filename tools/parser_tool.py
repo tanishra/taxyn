@@ -15,6 +15,7 @@ from typing import Any, List, Optional
 from agent.context import Context, ToolResult
 from agent.interfaces import ToolInterface
 from config.settings import settings
+from memory.stores import CorrectionStore
 
 logger = structlog.get_logger(__name__)
 
@@ -43,9 +44,10 @@ class ParserTool(ToolInterface):
     Tool 2 of 4 in the pipeline.
     """
 
-    def __init__(self):
+    def __init__(self, correction_store: Optional[CorrectionStore] = None):
         raw_client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
         self._client = instructor.from_openai(raw_client)
+        self._correction_store = correction_store
 
     @property
     def name(self) -> str:
@@ -63,8 +65,9 @@ class ParserTool(ToolInterface):
 
         # ── VENDOR MEMORY LAYER ───────────────────────────────────────
         vendor_name = self._heuristic_vendor_detection(raw_text)
-        from main import container
-        previous_fixes = await container.correction_store.get_vendor_memory(vendor_name)
+        previous_fixes = []
+        if self._correction_store is not None:
+            previous_fixes = await self._correction_store.get_vendor_memory(vendor_name)
         # ─────────────────────────────────────────────────────────────
 
         try:

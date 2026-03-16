@@ -28,52 +28,68 @@ class SplitterTool(ToolInterface):
     def name(self) -> str:
         return "splitter_tool"
 
+    def split_document(self, raw_bytes: bytes, filename: str = "document.pdf") -> List[Dict[str, Any]]:
+        context = Context(raw_bytes=raw_bytes, filename=filename)
+        result = self._split(context)
+        return result["split_documents"]
+
     async def execute(self, context: Context) -> ToolResult:
         logger.info("splitter_tool.started", filename=context.filename)
-        
+        split_payload = self._split(context)
+        split_count = len(split_payload["split_documents"])
+
+        if split_count > 1:
+            logger.info("splitter_tool.completed", original_filename=context.filename, num_splits=split_count)
+            return ToolResult(
+                tool_name=self.name,
+                success=True,
+                data=split_payload,
+                confidence=1.0 # Splitting is deterministic
+            )
+        else:
+            logger.info("splitter_tool.no_split_needed", original_filename=context.filename)
+            return ToolResult(
+                tool_name=self.name,
+                success=True,
+                data=split_payload,
+                confidence=1.0
+            )
+
+    def _split(self, context: Context) -> Dict[str, Any]:
         input_pdf_stream = io.BytesIO(context.raw_bytes)
         reader = PdfReader(input_pdf_stream)
-        
+
         split_documents: List[Dict[str, Any]] = []
         current_writer = None
-        current_doc_start_page = 0
         doc_counter = 0
 
-        keywords_for_new_doc = ["TAX INVOICE", "INVOICE NO", "GSTIN", "BILL OF SUPPLY"]
+        keywords_for_new_doc = ["TAX INVOICE", "INVOICE NO", "BILL OF SUPPLY", "ORIGINAL FOR RECIPIENT"]
 
         for i, page in enumerate(reader.pages):
-            page_text = page.extract_text().upper() if page.extract_text() else ""
-            
-            is_new_document_start = False
-            if i == 0: # Always start a new document with the first page
+            page_text = (page.extract_text() or "").upper()
+
+            is_new_document_start = i == 0
+            if i > 0 and any(keyword in page_text for keyword in keywords_for_new_doc):
                 is_new_document_start = True
-            else:
-                # Check for keywords on subsequent pages
-                if any(keyword in page_text for keyword in keywords_for_new_doc):
-                    is_new_document_start = True
-            
+
             if is_new_document_start and current_writer is not None:
-                # Save the completed document
                 output_pdf_stream = io.BytesIO()
                 current_writer.write(output_pdf_stream)
                 output_pdf_stream.seek(0)
-                
+
                 doc_counter += 1
                 split_documents.append({
                     "raw_bytes": output_pdf_stream.read(),
                     "filename": f"{context.filename.replace('.pdf', '')}_part_{doc_counter}.pdf"
                 })
-                
-                # Start a new writer for the new document
-                current_writer = PdfWriter()
-                current_doc_start_page = i
 
-            if current_writer is None: # Initialize for the very first document or after a split
+                current_writer = PdfWriter()
+
+            if current_writer is None:
                 current_writer = PdfWriter()
 
             current_writer.add_page(page)
 
-        # Save the last document after the loop
         if current_writer is not None:
             output_pdf_stream = io.BytesIO()
             current_writer.write(output_pdf_stream)
@@ -84,21 +100,7 @@ class SplitterTool(ToolInterface):
                 "raw_bytes": output_pdf_stream.read(),
                 "filename": f"{context.filename.replace('.pdf', '')}_part_{doc_counter}.pdf"
             })
-        
-        if len(split_documents) > 1:
-            logger.info("splitter_tool.completed", original_filename=context.filename, num_splits=len(split_documents))
-            return ToolResult(
-                tool_name=self.name,
-                success=True,
-                data={"split_documents": split_documents},
-                confidence=1.0 # Splitting is deterministic
-            )
-        else:
-            logger.info("splitter_tool.no_split_needed", original_filename=context.filename)
-            return ToolResult(
-                tool_name=self.name,
-                success=True,
-                data={"split_documents": [{"raw_bytes": context.raw_bytes, "filename": context.filename}]},
-                confidence=1.0
-            )
 
+        return {
+            "split_documents": split_documents or [{"raw_bytes": context.raw_bytes, "filename": context.filename}]
+        }

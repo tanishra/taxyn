@@ -33,6 +33,8 @@ GSTIN_PATTERN = re.compile(r"^\d{2}[A-Z]{5}\d{4}[A-Z]{1}\d[Z]{1}[A-Z\d]{1}$")
 
 # PAN regex: AAAAA9999A
 PAN_PATTERN = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]{1}$")
+TAN_PATTERN = re.compile(r"^[A-Z]{4}[0-9]{5}[A-Z]{1}$")
+IFSC_PATTERN = re.compile(r"^[A-Z]{4}0[A-Z0-9]{6}$")
 
 
 class ValidatorTool(ToolInterface):
@@ -133,6 +135,11 @@ class ValidatorTool(ToolInterface):
             if abs(igst - (cgst + sgst)) > 1:  # Allow ₹1 rounding
                 flags.append(f"TAX_MISMATCH: IGST ({igst}) ≠ CGST ({cgst}) + SGST ({sgst})")
 
+        liability = self._to_float(data.get("tax_liability"))
+        paid = self._to_float(data.get("tax_paid"))
+        if liability is not None and paid is not None and paid - liability > 1:
+            flags.append(f"TAX_OVERPAYMENT_WARNING: Tax paid ({paid}) is materially higher than liability ({liability})")
+
         return flags
 
     # ── TDS Validators ──────────────────────────────────────
@@ -144,6 +151,10 @@ class ValidatorTool(ToolInterface):
         if pan and not PAN_PATTERN.match(str(pan).upper()):
             flags.append(f"INVALID_PAN_FORMAT: '{pan}' does not match PAN format")
 
+        tan = data.get("tan", "")
+        if tan and not TAN_PATTERN.match(str(tan).upper()):
+            flags.append(f"INVALID_TAN_FORMAT: '{tan}' does not match TAN format")
+
         return flags
 
     # ── Bank Statement Validators ───────────────────────────
@@ -152,6 +163,31 @@ class ValidatorTool(ToolInterface):
         flags = []
         if not data.get("account_number"):
             flags.append("MISSING_ACCOUNT_NUMBER: Account number not found in statement")
+
+        ifsc = data.get("ifsc", "")
+        if ifsc and not IFSC_PATTERN.match(str(ifsc).upper()):
+            flags.append(f"INVALID_IFSC_FORMAT: '{ifsc}' does not match IFSC format")
+
+        opening_balance = self._to_float(data.get("opening_balance"))
+        closing_balance = self._to_float(data.get("closing_balance"))
+        transactions = data.get("transactions")
+        if (
+            opening_balance is not None
+            and closing_balance is not None
+            and isinstance(transactions, list)
+            and transactions
+        ):
+            running_balance = opening_balance
+            for entry in transactions:
+                if not isinstance(entry, dict):
+                    continue
+                debit = self._to_float(entry.get("debit")) or 0.0
+                credit = self._to_float(entry.get("credit")) or 0.0
+                running_balance += credit - debit
+            if abs(running_balance - closing_balance) > 5:
+                flags.append(
+                    f"BANK_BALANCE_MISMATCH: Transactions imply closing balance {running_balance:.2f}, statement shows {closing_balance:.2f}"
+                )
         return flags
 
     # ── Common Validators ───────────────────────────────────
@@ -166,6 +202,11 @@ class ValidatorTool(ToolInterface):
                 flags.append(f"INVALID_DATE_FORMAT: Could not parse date '{date_str}'")
             elif doc_date > datetime.utcnow():
                 flags.append(f"FUTURE_DATE: Document date {date_str} is in the future")
+
+        for key in ["supplier_gstin", "buyer_gstin", "vendor_gstin", "gstin"]:
+            gstin = data.get(key)
+            if gstin and not GSTIN_PATTERN.match(str(gstin).upper()):
+                flags.append(f"INVALID_GSTIN_FORMAT: Field '{key}' has invalid GSTIN '{gstin}'")
 
         return flags
 
