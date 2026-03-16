@@ -10,7 +10,7 @@ import random
 import io # Added for pypdf
 from datetime import datetime
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Response, APIRouter, Body
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Response, APIRouter, Body, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from contextlib import asynccontextmanager
@@ -30,6 +30,7 @@ from api.channels.rest_adapter import RestAdapter
 from config.settings import settings
 from auth.manager import SecurityManager
 from auth.mailer import Mailer
+from auth.rate_limiter import RateLimiter, RateLimitExceeded
 from tools.splitter_tool import SplitterTool # Import the new splitter tool
 
 # ── Logging setup ──────────────────────────────────────────
@@ -45,27 +46,7 @@ logger = structlog.get_logger(__name__)
 # ── Dependency Container ──────────────────────────────────
 class Container:
     def __init__(self):
-        db_url = (settings.DATABASE_URL or "").strip()
-        if db_url:
-            if db_url.startswith("postgres://"):
-                db_url = "postgresql+asyncpg://" + db_url[len("postgres://"):]
-            elif db_url.startswith("postgresql://"):
-                db_url = "postgresql+asyncpg://" + db_url[len("postgresql://"):]
-
-            # asyncpg expects `ssl`, while many managed DB URLs provide `sslmode`.
-            if db_url.startswith("postgresql+asyncpg://"):
-                parsed = urlparse(db_url)
-                query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-                if "sslmode" in query and "ssl" not in query:
-                    query["ssl"] = query.pop("sslmode")
-                # libpq-specific params that asyncpg does not accept.
-                query.pop("channel_binding", None)
-                query.pop("gssencmode", None)
-                query.pop("target_session_attrs", None)
-                db_url = urlunparse(parsed._replace(query=urlencode(query)))
-            self.repo = SQLRepository(db_url)
-        else:
-            self.repo = SQLRepository("sqlite+aiosqlite:///./taxyn.db")
+        self.repo = self._build_repository()
 
         self.user_store = UserStore(self.repo)
         self.schema_store = SchemaStore(self.repo)
@@ -74,13 +55,38 @@ class Container:
         self.document_store = DocumentStore(self.repo)
 
         self.serializer = ResponseSerializer()
-        self.hitl_queue = HITLQueue()
+        self.hitl_queue = HITLQueue(self.repo)
         self.tracer = Tracer(self.audit_store)
-        skill_factory = SkillFactory()
+        self.rate_limiter = RateLimiter(self.repo)
+        skill_factory = SkillFactory(correction_store=self.correction_store)
         planner = Planner(skill_factory, self.schema_store)
         self.agent_loop = AgentLoop(planner, self.serializer, self.hitl_queue, self.tracer)
         self.rest_adapter = RestAdapter(self.schema_store)
         self.splitter_tool = SplitterTool()
+
+    def _build_repository(self):
+        db_url = (settings.DATABASE_URL or "").strip()
+        try:
+            if db_url:
+                if db_url.startswith("postgres://"):
+                    db_url = "postgresql+asyncpg://" + db_url[len("postgres://"):]
+                elif db_url.startswith("postgresql://"):
+                    db_url = "postgresql+asyncpg://" + db_url[len("postgresql://"):]
+
+                if db_url.startswith("postgresql+asyncpg://"):
+                    parsed = urlparse(db_url)
+                    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+                    if "sslmode" in query and "ssl" not in query:
+                        query["ssl"] = query.pop("sslmode")
+                    query.pop("channel_binding", None)
+                    query.pop("gssencmode", None)
+                    query.pop("target_session_attrs", None)
+                    db_url = urlunparse(parsed._replace(query=urlencode(query)))
+                return SQLRepository(db_url)
+            return SQLRepository("sqlite+aiosqlite:///./taxyn.db")
+        except Exception as e:
+            logger.error("container.repository_init_failed", error=str(e))
+            return InMemoryRepository()
 
 container = Container()
 
@@ -119,6 +125,15 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
     return user
 
 async def get_optional_user(token: Optional[str] = Depends(oauth2_scheme_optional)) -> Optional[User]:
+    if not token:
+        return None
+    token_data = SecurityManager.decode_token(token)
+    if not token_data:
+        return None
+    return await container.user_store.get_by_id(token_data.user_id)
+
+
+async def get_user_from_query_token(token: Optional[str]) -> Optional[User]:
     if not token:
         return None
     token_data = SecurityManager.decode_token(token)
@@ -167,6 +182,24 @@ def _extract_persisted_data(trace: dict) -> dict:
                 return parser_fields
     return {}
 
+
+def _request_actor(request: Request, user: Optional[User] = None, fallback: str = "anonymous") -> str:
+    if user and getattr(user, "id", None):
+        return user.id
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return fallback
+
+
+async def _enforce_rate_limit(scope: str, actor: str, limit: int, window_seconds: int) -> None:
+    try:
+        await container.rate_limiter.check(scope, actor, limit=limit, window_seconds=window_seconds)
+    except RateLimitExceeded as e:
+        raise HTTPException(status_code=429, detail=str(e))
+
 # ── App lifecycle ──────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -175,13 +208,19 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(title="Taxyn API", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 
 # ── AUTH ROUTES ───────────────────────────────────────────
 auth_router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 @auth_router.post("/signup/initiate")
-async def initiate_signup(email: str = Form(...)):
+async def initiate_signup(request: Request, email: str = Form(...)):
+    await _enforce_rate_limit("signup_initiate", _request_actor(request, fallback=email.lower()), limit=5, window_seconds=600)
     existing = await container.user_store.get_by_email(email)
     if existing: raise HTTPException(status_code=400, detail="Email already registered")
     
@@ -198,7 +237,8 @@ async def initiate_signup(email: str = Form(...)):
     return {"status": "success", "message": "OTP sent to email"}
 
 @auth_router.post("/signup/verify")
-async def verify_signup(email: str = Form(...), otp: str = Form(...), password: str = Form(...), full_name: str = Form(...)):
+async def verify_signup(request: Request, email: str = Form(...), otp: str = Form(...), password: str = Form(...), full_name: str = Form(...)):
+    await _enforce_rate_limit("signup_verify", _request_actor(request, fallback=email.lower()), limit=10, window_seconds=600)
     is_valid = await container.user_store.verify_otp(email, otp)
     if not is_valid: raise HTTPException(status_code=400, detail="Invalid or expired OTP")
     
@@ -213,7 +253,8 @@ async def verify_signup(email: str = Form(...), otp: str = Form(...), password: 
     return {"status": "success", "message": "Account verified and created"}
 
 @auth_router.post("/login")
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
+    await _enforce_rate_limit("login", _request_actor(request, fallback=form_data.username.lower()), limit=15, window_seconds=900)
     user = await container.user_store.get_by_email(form_data.username)
     if not user or not SecurityManager.verify_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=400, detail="Incorrect email or password")
@@ -222,11 +263,12 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     return {"access_token": access_token, "token_type": "bearer"}
 
 @auth_router.post("/google")
-async def google_login(token: str = Form(...)):
+async def google_login(request: Request, token: str = Form(...)):
     """
     Fetch user info from Google using Access Token and login/signup.
     """
     import httpx
+    await _enforce_rate_limit("google_login", _request_actor(request), limit=15, window_seconds=900)
     
     try:
         # 1. Use the Access Token to fetch user profile from Google
@@ -366,12 +408,14 @@ async def get_history_item(request_id: str, user: User = Depends(get_current_use
 
 @app.post("/api/v1/contact")
 async def submit_contact_message(
+    request: Request,
     subject: str = Form(...),
     message: str = Form(...),
     name: Optional[str] = Form(None),
     email: Optional[str] = Form(None),
     user: Optional[User] = Depends(get_optional_user),
 ):
+    await _enforce_rate_limit("contact", _request_actor(request, user=user, fallback=(email or "").lower()), limit=10, window_seconds=3600)
     final_name = (name or (user.full_name if user else "") or "").strip()
     final_email = (email or (user.email if user else "") or "").strip()
     final_subject = subject.strip()
@@ -627,12 +671,16 @@ async def health():
 
 @app.post("/api/v1/extract")
 async def extract_document(
+    request: Request,
     file: UploadFile = File(...),
     tenant_id: Optional[str] = Form(default=None),
     doc_type: DocType = Form(default=DocType.UNKNOWN), # Changed default to DocType.UNKNOWN
     user: Optional[User] = Depends(get_optional_user),
     request_id: Optional[str] = Form(default=None), # Added request_id
 ) -> Union[dict, List[dict]]: # Changed return type hint
+    if not user and not settings.ALLOW_PUBLIC_DEMO:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    await _enforce_rate_limit("extract", _request_actor(request, user=user), limit=20, window_seconds=900)
     
     # Read raw bytes from the uploaded file
     raw_bytes = await file.read()
@@ -640,6 +688,15 @@ async def extract_document(
 
     if not filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
+    if not raw_bytes.startswith(b"%PDF"):
+        raise HTTPException(status_code=400, detail="Invalid PDF file signature")
+    if not raw_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded PDF is empty")
+    if len(raw_bytes) > settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds max upload size of {settings.MAX_UPLOAD_SIZE_MB} MB",
+        )
 
     # Use existing request_id if provided (for split documents) or generate a new one
     current_request_id = request_id or str(uuid.uuid4())
@@ -648,12 +705,12 @@ async def extract_document(
     # If it's an invoice or unknown doc type, attempt to split the PDF
     if doc_type in [DocType.INVOICE, DocType.UNKNOWN]:
         # Attempt to split the document
-        split_documents = container.splitter_tool.split_document(raw_bytes)
+        split_documents = container.splitter_tool.split_document(raw_bytes, filename)
         
         if len(split_documents) > 1:
             # Process each split document
             results = []
-            for i, split_doc_bytes in enumerate(split_documents):
+            for i, split_doc in enumerate(split_documents):
                 # Generate a unique request_id for each split part
                 part_request_id = f"{current_request_id}-{i}"
                 
@@ -661,14 +718,19 @@ async def extract_document(
                 # Pass file_bytes directly to rest_adapter.parse_request
                 context = await container.rest_adapter.parse_request(
                     {
-                        "file_bytes": split_doc_bytes,
+                        "file_bytes": split_doc["raw_bytes"],
                         "tenant_id": resolved_tenant_id,
                         "doc_type": doc_type.value, # Pass the value of DocType
-                        "filename": f"{filename}_part{i}.pdf", # Generate unique filename
+                        "filename": split_doc["filename"],
                         "request_id": part_request_id,
                     }
                 )
-                await container.document_store.save(context.request_id, context.raw_bytes)
+                await container.document_store.save(
+                    context.request_id,
+                    context.raw_bytes,
+                    tenant_id=context.tenant_id,
+                    filename=context.filename,
+                )
                 processing_result = await container.agent_loop.run(context)
                 results.append(processing_result)
             return results
@@ -683,26 +745,58 @@ async def extract_document(
             "request_id": current_request_id,
         }
     )
-    await container.document_store.save(context.request_id, context.raw_bytes)
+    await container.document_store.save(
+        context.request_id,
+        context.raw_bytes,
+        tenant_id=context.tenant_id,
+        filename=context.filename,
+    )
     return await container.agent_loop.run(context)
 
 @app.get("/api/v1/document/{request_id}")
-async def get_document(request_id: str, user: Optional[User] = Depends(get_optional_user)):
+async def get_document(
+    request_id: str,
+    token: Optional[str] = Query(default=None),
+    user: Optional[User] = Depends(get_optional_user),
+):
     content = await container.document_store.get(request_id)
-    if not content: raise HTTPException(status_code=404, detail="Not found")
+    if not content:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    metadata = await container.document_store.get_meta(request_id) or {}
+    effective_user = user or await get_user_from_query_token(token)
+    tenant_id = metadata.get("tenant_id")
+    if tenant_id and tenant_id != "public_demo":
+        if not effective_user:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        if not (_is_admin_user(effective_user) or effective_user.id == tenant_id):
+            raise HTTPException(status_code=403, detail="Not authorized to access this document")
     return Response(content=content, media_type="application/pdf")
 
 @app.post("/api/v1/reconcile/upload-portal")
-async def upload_portal_data(file: UploadFile = File(...), user: User = Depends(get_current_user)):
+async def upload_portal_data(
+    request: Request,
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    await _enforce_rate_limit("portal_upload", _request_actor(request, user=user), limit=10, window_seconds=900)
     if not file.filename.endswith((".xlsx", ".xls")): raise HTTPException(status_code=400, detail="Excel only")
     from tools.portal_parser import PortalExcelParser
     records = PortalExcelParser().parse(await file.read())
-    await container.schema_store.save_schema(user.id, "portal_data", {"records": records})
+    if not records:
+        raise HTTPException(status_code=400, detail="No portal records could be parsed from the uploaded file")
+    await container.schema_store.set_schema(user.id, "portal_data", {"records": records})
     return {"status": "success", "records": len(records)}
 
 @app.get("/api/v1/review/pending")
-async def pending_reviews():
+async def pending_reviews(user: Optional[User] = Depends(get_optional_user)):
+    if not user and not settings.ALLOW_PUBLIC_DEMO:
+        raise HTTPException(status_code=401, detail="Authentication required")
     pending = await container.hitl_queue.get_pending()
+    if user and not _is_admin_user(user):
+        pending = [item for item in pending if item.get("tenant_id") == user.id]
+    elif not user:
+        pending = [item for item in pending if item.get("tenant_id") == "public_demo"]
     return {"pending_count": len(pending), "items": pending}
 
 @app.post("/api/v1/review/{request_id}/resolve")
@@ -711,12 +805,19 @@ async def resolve_review(
     corrected_data: dict = Body(default={}),
     user: Optional[User] = Depends(get_optional_user)
 ):
+    if not user and not settings.ALLOW_PUBLIC_DEMO:
+        raise HTTPException(status_code=401, detail="Authentication required")
     queue_items = await container.hitl_queue.get_pending()
     queued_item = next((item for item in queue_items if item.get("request_id") == request_id), None)
     if not queued_item:
         raise HTTPException(status_code=404, detail="Review item not found")
 
     tenant_id = queued_item.get("tenant_id") or (user.id if user else "public_demo")
+    if tenant_id != "public_demo":
+        if not user:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        if not (_is_admin_user(user) or user.id == tenant_id):
+            raise HTTPException(status_code=403, detail="Not authorized to resolve this review item")
     vendor_name = str(corrected_data.get("vendor_name", "unknown"))
     partial_data = queued_item.get("partial_data", {})
     for field, corrected_value in corrected_data.items():
@@ -732,6 +833,15 @@ async def resolve_review(
             )
 
     await container.hitl_queue.resolve(request_id, corrected_data)
+    existing_trace = await container.audit_store.get(tenant_id, request_id)
+    if isinstance(existing_trace, dict):
+        resolved_data = corrected_data or partial_data
+        existing_trace["status"] = ProcessingStatus.COMPLETED.value
+        existing_trace["extracted_data"] = resolved_data
+        existing_trace["confidence"] = 1.0
+        existing_trace["overall_confidence"] = 1.0
+        existing_trace["resolved_at"] = datetime.utcnow().isoformat()
+        await container.audit_store.record(tenant_id, request_id, existing_trace)
     return {"status": "success", "message": "Review resolved"}
 
 app.include_router(auth_router)
