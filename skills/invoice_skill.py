@@ -23,6 +23,7 @@ from tools.parser_tool import ParserTool
 from tools.validator_tool import ValidatorTool
 from tools.confidence_scorer_tool import ConfidenceScorerTool
 from tools.qr_tool import QRTool
+from memory.stores import CorrectionStore
 
 logger = structlog.get_logger(__name__)
 
@@ -33,11 +34,11 @@ class InvoiceSkill(BaseSkill):
     Extends BaseSkill (Template Method Pattern).
     """
 
-    def __init__(self):
+    def __init__(self, correction_store: CorrectionStore | None = None):
         # Tools are injected as dependencies
         self._qr = QRTool()
         self._extractor = ExtractorTool()
-        self._parser = ParserTool()
+        self._parser = ParserTool(correction_store=correction_store)
         self._validator = ValidatorTool()
         self._scorer = ConfidenceScorerTool()
 

@@ -6,11 +6,12 @@ from tools.extractor_tool import ExtractorTool
 from tools.parser_tool import ParserTool
 from tools.validator_tool import ValidatorTool
 from tools.confidence_scorer_tool import ConfidenceScorerTool
+from memory.stores import CorrectionStore
 
 
 class BankStatementSkill(BaseSkill):
-    def __init__(self):
-        self._tools = [ExtractorTool(), ParserTool(), ValidatorTool(), ConfidenceScorerTool()]
+    def __init__(self, correction_store: CorrectionStore | None = None):
+        self._tools = [ExtractorTool(), ParserTool(correction_store=correction_store), ValidatorTool(), ConfidenceScorerTool()]
 
     @property
     def skill_name(self) -> str:
@@ -24,8 +25,8 @@ class BankStatementSkill(BaseSkill):
 
 
 class TDSSkill(BaseSkill):
-    def __init__(self):
-        self._tools = [ExtractorTool(), ParserTool(), ValidatorTool(), ConfidenceScorerTool()]
+    def __init__(self, correction_store: CorrectionStore | None = None):
+        self._tools = [ExtractorTool(), ParserTool(correction_store=correction_store), ValidatorTool(), ConfidenceScorerTool()]
 
     @property
     def skill_name(self) -> str:

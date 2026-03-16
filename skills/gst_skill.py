@@ -8,12 +8,13 @@ from tools.extractor_tool import ExtractorTool
 from tools.parser_tool import ParserTool
 from tools.validator_tool import ValidatorTool
 from tools.confidence_scorer_tool import ConfidenceScorerTool
+from memory.stores import CorrectionStore
 
 
 class GSTSkill(BaseSkill):
-    def __init__(self):
+    def __init__(self, correction_store: CorrectionStore | None = None):
         self._extractor = ExtractorTool()
-        self._parser = ParserTool()
+        self._parser = ParserTool(correction_store=correction_store)
         self._validator = ValidatorTool()
         self._scorer = ConfidenceScorerTool()
 
