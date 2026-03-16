@@ -16,6 +16,7 @@ Adding a new document type:
 """
 
 import structlog
+import io
 from agent.context import Context, DocType
 from agent.interfaces import PlannerInterface, BaseSkill
 from skills.factory import SkillFactory
@@ -74,6 +75,32 @@ class Planner(PlannerInterface):
             return DocType.BANK_STATEMENT
         if any(k in filename_lower for k in ["tds", "form16", "form-16"]):
             return DocType.TDS_CERTIFICATE
+        if any(k in filename_lower for k in ["recon", "2a", "2b"]):
+            return DocType.RECONCILIATION
+
+        content_hint = self._peek_pdf_text(context.raw_bytes)
+        if any(k in content_hint for k in ["tax invoice", "invoice no", "bill to"]):
+            return DocType.INVOICE
+        if any(k in content_hint for k in ["gstr-1", "gstr-2a", "gstr-2b", "gst return"]):
+            return DocType.GST_RETURN
+        if any(k in content_hint for k in ["account statement", "opening balance", "closing balance", "ifsc"]):
+            return DocType.BANK_STATEMENT
+        if any(k in content_hint for k in ["form 16", "form 16a", "tds certificate", "deductor"]):
+            return DocType.TDS_CERTIFICATE
+        if any(k in content_hint for k in ["reconciliation", "missing in portal", "2a", "2b"]):
+            return DocType.RECONCILIATION
 
         # Default fallback
         return DocType.INVOICE
+
+    def _peek_pdf_text(self, raw_bytes: bytes) -> str:
+        try:
+            from pypdf import PdfReader
+
+            reader = PdfReader(io.BytesIO(raw_bytes))
+            snippets = []
+            for page in reader.pages[:2]:
+                snippets.append(page.extract_text() or "")
+            return "\n".join(snippets).lower()
+        except Exception:
+            return ""

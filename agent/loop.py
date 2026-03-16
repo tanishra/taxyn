@@ -93,7 +93,9 @@ class AgentLoop:
                     threshold=settings.CONFIDENCE_THRESHOLD,
                 )
                 context.status = ProcessingStatus.NEEDS_REVIEW
+                context.processing_time_ms = (time.time() - start_time) * 1000
                 await self._hitl_queue.enqueue(context)
+                await self._tracer.record(context)
                 return self._serializer.needs_review_response(context)
 
             # ── Step 4: Success path ───────────────────────────────
