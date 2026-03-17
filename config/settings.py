@@ -15,6 +15,9 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = ""
     REDIS_URL: str = ""
+    DOCUMENT_STORAGE_MODE: str = "database"
+    DOCUMENT_STORAGE_PATH: str = "./data/documents"
+    ENABLE_ASYNC_PROCESSING: bool = True
 
     CONFIDENCE_THRESHOLD: float = 0.85
     MAX_UPLOAD_SIZE_MB: int = 25
