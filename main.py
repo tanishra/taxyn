@@ -5,6 +5,7 @@ Wires all components together using dependency injection.
 """
 
 import structlog
+import asyncio
 import uuid
 import random
 import io # Added for pypdf
@@ -22,7 +23,7 @@ from agent.loop import AgentLoop
 from agent.planner import Planner
 from agent.context import Context, DocType, ProcessingStatus
 from skills.factory import SkillFactory
-from memory.stores import SQLRepository, InMemoryRepository, SchemaStore, CorrectionStore, AuditStore, DocumentStore, UserStore, User, StoreItem, DocumentBlob
+from memory.stores import SQLRepository, InMemoryRepository, SchemaStore, CorrectionStore, AuditStore, DocumentStore, ProcessingJobStore, UserStore, User, StoreItem, DocumentBlob
 from output.serializer import ResponseSerializer
 from output.hitl_queue import HITLQueue
 from observability.tracer import Tracer
@@ -42,6 +43,7 @@ structlog.configure(
     ]
 )
 logger = structlog.get_logger(__name__)
+processing_tasks: set[asyncio.Task] = set()
 
 # ── Dependency Container ──────────────────────────────────
 class Container:
@@ -52,7 +54,12 @@ class Container:
         self.schema_store = SchemaStore(self.repo)
         self.correction_store = CorrectionStore(self.repo)
         self.audit_store = AuditStore(self.repo)
-        self.document_store = DocumentStore(self.repo)
+        self.job_store = ProcessingJobStore(self.repo)
+        self.document_store = DocumentStore(
+            self.repo,
+            storage_mode=settings.DOCUMENT_STORAGE_MODE,
+            storage_path=settings.DOCUMENT_STORAGE_PATH,
+        )
 
         self.serializer = ResponseSerializer()
         self.hitl_queue = HITLQueue(self.repo)
@@ -199,6 +206,91 @@ async def _enforce_rate_limit(scope: str, actor: str, limit: int, window_seconds
         await container.rate_limiter.check(scope, actor, limit=limit, window_seconds=window_seconds)
     except RateLimitExceeded as e:
         raise HTTPException(status_code=429, detail=str(e))
+
+
+async def _build_contexts(
+    *,
+    raw_bytes: bytes,
+    filename: str,
+    resolved_tenant_id: str,
+    doc_type: DocType,
+    request_id: str,
+) -> list[Context]:
+    if doc_type in [DocType.INVOICE, DocType.UNKNOWN]:
+        split_documents = container.splitter_tool.split_document(raw_bytes, filename)
+        if len(split_documents) > 1:
+            contexts: list[Context] = []
+            for i, split_doc in enumerate(split_documents):
+                part_request_id = f"{request_id}-{i}"
+                context = await container.rest_adapter.parse_request(
+                    {
+                        "file_bytes": split_doc["raw_bytes"],
+                        "tenant_id": resolved_tenant_id,
+                        "doc_type": doc_type.value,
+                        "filename": split_doc["filename"],
+                        "request_id": part_request_id,
+                    }
+                )
+                contexts.append(context)
+            return contexts
+
+    context = await container.rest_adapter.parse_request(
+        {
+            "file_bytes": raw_bytes,
+            "tenant_id": resolved_tenant_id,
+            "doc_type": doc_type.value,
+            "filename": filename,
+            "request_id": request_id,
+        }
+    )
+    return [context]
+
+
+async def _process_contexts(contexts: list[Context]) -> Union[dict, List[dict]]:
+    results = []
+    for context in contexts:
+        await container.document_store.save(
+            context.request_id,
+            context.raw_bytes,
+            tenant_id=context.tenant_id,
+            filename=context.filename,
+        )
+        processing_result = await container.agent_loop.run(context)
+        results.append(processing_result)
+    return results[0] if len(results) == 1 else results
+
+
+async def _process_job(request_id: str, contexts: list[Context]) -> None:
+    await container.job_store.update_job(
+        request_id,
+        {"status": "processing", "started_at": datetime.utcnow().isoformat()},
+    )
+    try:
+        result = await _process_contexts(contexts)
+        await container.job_store.update_job(
+            request_id,
+            {
+                "status": "completed",
+                "completed_at": datetime.utcnow().isoformat(),
+                "result": result,
+            },
+        )
+    except Exception as e:
+        logger.error("background_processing.failed", request_id=request_id, error=str(e), exc_info=True)
+        await container.job_store.update_job(
+            request_id,
+            {
+                "status": "failed",
+                "completed_at": datetime.utcnow().isoformat(),
+                "error": str(e),
+            },
+        )
+
+
+def _schedule_background_job(request_id: str, contexts: list[Context]) -> None:
+    task = asyncio.create_task(_process_job(request_id, contexts))
+    processing_tasks.add(task)
+    task.add_done_callback(processing_tasks.discard)
 
 # ── App lifecycle ──────────────────────────────────────────
 @asynccontextmanager
@@ -667,7 +759,15 @@ async def admin_update_feedback_status(
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "app": settings.APP_NAME}
+    pending_reviews = await container.hitl_queue.get_pending()
+    return {
+        "status": "ok",
+        "app": settings.APP_NAME,
+        "storage_mode": settings.DOCUMENT_STORAGE_MODE,
+        "async_processing": settings.ENABLE_ASYNC_PROCESSING,
+        "pending_reviews": len(pending_reviews),
+        "active_background_tasks": len(processing_tasks),
+    }
 
 @app.post("/api/v1/extract")
 async def extract_document(
@@ -677,6 +777,7 @@ async def extract_document(
     doc_type: DocType = Form(default=DocType.UNKNOWN), # Changed default to DocType.UNKNOWN
     user: Optional[User] = Depends(get_optional_user),
     request_id: Optional[str] = Form(default=None), # Added request_id
+    async_mode: bool = Form(default=False),
 ) -> Union[dict, List[dict]]: # Changed return type hint
     if not user and not settings.ALLOW_PUBLIC_DEMO:
         raise HTTPException(status_code=401, detail="Authentication required")
@@ -702,56 +803,39 @@ async def extract_document(
     current_request_id = request_id or str(uuid.uuid4())
     resolved_tenant_id = user.id if user else (tenant_id or "public_demo")
 
-    # If it's an invoice or unknown doc type, attempt to split the PDF
-    if doc_type in [DocType.INVOICE, DocType.UNKNOWN]:
-        # Attempt to split the document
-        split_documents = container.splitter_tool.split_document(raw_bytes, filename)
-        
-        if len(split_documents) > 1:
-            # Process each split document
-            results = []
-            for i, split_doc in enumerate(split_documents):
-                # Generate a unique request_id for each split part
-                part_request_id = f"{current_request_id}-{i}"
-                
-                # Create a new context for each split document
-                # Pass file_bytes directly to rest_adapter.parse_request
-                context = await container.rest_adapter.parse_request(
-                    {
-                        "file_bytes": split_doc["raw_bytes"],
-                        "tenant_id": resolved_tenant_id,
-                        "doc_type": doc_type.value, # Pass the value of DocType
-                        "filename": split_doc["filename"],
-                        "request_id": part_request_id,
-                    }
-                )
-                await container.document_store.save(
-                    context.request_id,
-                    context.raw_bytes,
-                    tenant_id=context.tenant_id,
-                    filename=context.filename,
-                )
-                processing_result = await container.agent_loop.run(context)
-                results.append(processing_result)
-            return results
-        
-    # Original logic for single document or non-splittable types
-    context = await container.rest_adapter.parse_request(
-        {
-            "file_bytes": raw_bytes, # Pass raw_bytes instead of UploadFile
-            "tenant_id": resolved_tenant_id,
-            "doc_type": doc_type.value, # Pass the value of DocType
-            "filename": filename,
-            "request_id": current_request_id,
-        }
+    contexts = await _build_contexts(
+        raw_bytes=raw_bytes,
+        filename=filename,
+        resolved_tenant_id=resolved_tenant_id,
+        doc_type=doc_type,
+        request_id=current_request_id,
     )
-    await container.document_store.save(
-        context.request_id,
-        context.raw_bytes,
-        tenant_id=context.tenant_id,
-        filename=context.filename,
-    )
-    return await container.agent_loop.run(context)
+
+    if async_mode and settings.ENABLE_ASYNC_PROCESSING:
+        await container.job_store.create_job(current_request_id, resolved_tenant_id, filename, doc_type.value)
+        _schedule_background_job(current_request_id, contexts)
+        return container.serializer.queued_response(current_request_id, filename, doc_type.value)
+
+    return await _process_contexts(contexts)
+
+
+@app.get("/api/v1/extract/{request_id}/status")
+async def get_extract_status(request_id: str, user: Optional[User] = Depends(get_optional_user)):
+    job = await container.job_store.get_job(request_id)
+    if not isinstance(job, dict):
+        tenant_hint = user.id if user else "public_demo"
+        trace = await container.audit_store.get(tenant_hint, request_id)
+        if not isinstance(trace, dict):
+            raise HTTPException(status_code=404, detail="Processing request not found")
+        return trace
+
+    tenant_id = job.get("tenant_id")
+    if tenant_id and tenant_id != "public_demo":
+        if not user:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        if not (_is_admin_user(user) or user.id == tenant_id):
+            raise HTTPException(status_code=403, detail="Not authorized to access this request")
+    return job
 
 @app.get("/api/v1/document/{request_id}")
 async def get_document(
