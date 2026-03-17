@@ -128,8 +128,27 @@ class ParserTool(ToolInterface):
                 memory_str += f"- For field '{fix['field']}', human corrected it to '{fix['corrected']}'.\n"
 
         special_instructions = ""
-        if "bank_statement" in str(doc_type).lower():
-            special_instructions = "\nFor the 'transactions' field, extract a list of objects each containing: date, description, debit, credit, balance."
+        doc_type_str = str(doc_type).lower()
+        if "bank_statement" in doc_type_str:
+            special_instructions = (
+                "\nFor the 'transactions' field, extract a list of objects each containing: "
+                "date, description, debit, credit, balance. Preserve transaction order."
+            )
+        elif "tds_certificate" in doc_type_str:
+            special_instructions = (
+                "\nPrioritize statutory identifiers exactly as printed: PAN, TAN, certificate number, section code, "
+                "assessment year, and deduction dates. Do not invent missing values."
+            )
+        elif "reconciliation" in doc_type_str:
+            special_instructions = (
+                "\nPrioritize invoice number, vendor GSTIN, invoice date, taxable value, total amount, and tax split "
+                "with exact numeric normalization for later matching."
+            )
+        elif "invoice" in doc_type_str:
+            special_instructions = (
+                "\nFor 'line_items', extract a list of objects with description, quantity, rate, taxable_value, and tax if visible. "
+                "Prefer printed invoice number/date over inferred guesses."
+            )
 
         return f"""You are a document extraction expert specializing in Indian financial documents.
 

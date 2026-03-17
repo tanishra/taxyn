@@ -68,6 +68,17 @@ class ConfidenceScorerTool(ToolInterface):
 
         overall = weighted_sum / total_weight if total_weight > 0 else 0.0
 
+        extracted_fields = {
+            key: value for key, value in context.extracted_data.items()
+            if key not in {"raw_text", "char_count", "qr_data"} and value not in (None, "", [], {})
+        }
+        scored_field_count = len(scores)
+        completeness_ratio = min(len(extracted_fields) / scored_field_count, 1.0) if scored_field_count else 0.0
+        overall = (overall * 0.8) + (completeness_ratio * 0.2)
+
+        if context.extracted_data.get("qr_data"):
+            overall = min(1.0, overall + 0.03)
+
         # Penalize if there are compliance flags
         flag_count = len(context.compliance_flags)
         if flag_count > 0:
@@ -79,6 +90,9 @@ class ConfidenceScorerTool(ToolInterface):
                 flags=flag_count,
                 penalty=penalty,
             )
+
+        low_field_penalty = min(len(low_confidence_fields) * 0.015, 0.10)
+        overall = max(0.0, overall - low_field_penalty)
 
         context.overall_confidence = round(overall, 4)
 
@@ -99,6 +113,7 @@ class ConfidenceScorerTool(ToolInterface):
                 "low_confidence_fields": low_confidence_fields,
                 "needs_review": needs_review,
                 "threshold": settings.CONFIDENCE_THRESHOLD,
+                "completeness_ratio": round(completeness_ratio, 4),
             },
             confidence=context.overall_confidence,
         )
