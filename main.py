@@ -208,6 +208,48 @@ async def _enforce_rate_limit(scope: str, actor: str, limit: int, window_seconds
         raise HTTPException(status_code=429, detail=str(e))
 
 
+async def _collect_runtime_metrics() -> dict[str, int | str]:
+    pending_reviews = await container.hitl_queue.get_pending()
+    processing_jobs = await container.repo.get_by_tag("processing_job") if hasattr(container.repo, "get_by_tag") else []
+    document_meta = await container.repo.get_by_tag("document_meta") if hasattr(container.repo, "get_by_tag") else []
+    feedback_items = await container.repo.get_by_tag("feedback") if hasattr(container.repo, "get_by_tag") else []
+
+    queued_jobs = 0
+    active_jobs = 0
+    completed_jobs = 0
+    failed_jobs = 0
+    for item in processing_jobs:
+        if not isinstance(item, dict):
+            continue
+        status = item.get("status")
+        if status == "queued":
+            queued_jobs += 1
+        elif status == "processing":
+            active_jobs += 1
+        elif status == "completed":
+            completed_jobs += 1
+        elif status == "failed":
+            failed_jobs += 1
+
+    open_feedback = sum(
+        1 for item in feedback_items
+        if isinstance(item, dict) and item.get("status", "open") != "resolved"
+    )
+
+    return {
+        "storage_mode": settings.DOCUMENT_STORAGE_MODE,
+        "async_processing": "1" if settings.ENABLE_ASYNC_PROCESSING else "0",
+        "pending_reviews": len(pending_reviews),
+        "queued_jobs": queued_jobs,
+        "active_jobs": active_jobs,
+        "completed_jobs": completed_jobs,
+        "failed_jobs": failed_jobs,
+        "document_meta_records": len(document_meta),
+        "open_feedback": open_feedback,
+        "in_process_tasks": len(processing_tasks),
+    }
+
+
 async def _build_contexts(
     *,
     raw_bytes: bytes,
@@ -759,15 +801,47 @@ async def admin_update_feedback_status(
 
 @app.get("/health")
 async def health():
-    pending_reviews = await container.hitl_queue.get_pending()
+    runtime_metrics = await _collect_runtime_metrics()
     return {
         "status": "ok",
         "app": settings.APP_NAME,
-        "storage_mode": settings.DOCUMENT_STORAGE_MODE,
-        "async_processing": settings.ENABLE_ASYNC_PROCESSING,
-        "pending_reviews": len(pending_reviews),
-        "active_background_tasks": len(processing_tasks),
+        **runtime_metrics,
     }
+
+
+@app.get("/metrics")
+async def metrics():
+    runtime_metrics = await _collect_runtime_metrics()
+    lines = [
+        "# HELP taxyn_pending_reviews Current number of pending review items",
+        "# TYPE taxyn_pending_reviews gauge",
+        f"taxyn_pending_reviews {runtime_metrics['pending_reviews']}",
+        "# HELP taxyn_jobs_queued Current number of queued processing jobs",
+        "# TYPE taxyn_jobs_queued gauge",
+        f"taxyn_jobs_queued {runtime_metrics['queued_jobs']}",
+        "# HELP taxyn_jobs_processing Current number of active processing jobs",
+        "# TYPE taxyn_jobs_processing gauge",
+        f"taxyn_jobs_processing {runtime_metrics['active_jobs']}",
+        "# HELP taxyn_jobs_completed Completed processing jobs recorded in the store",
+        "# TYPE taxyn_jobs_completed gauge",
+        f"taxyn_jobs_completed {runtime_metrics['completed_jobs']}",
+        "# HELP taxyn_jobs_failed Failed processing jobs recorded in the store",
+        "# TYPE taxyn_jobs_failed gauge",
+        f"taxyn_jobs_failed {runtime_metrics['failed_jobs']}",
+        "# HELP taxyn_document_meta_records Number of document metadata records tracked",
+        "# TYPE taxyn_document_meta_records gauge",
+        f"taxyn_document_meta_records {runtime_metrics['document_meta_records']}",
+        "# HELP taxyn_feedback_open Open feedback items",
+        "# TYPE taxyn_feedback_open gauge",
+        f"taxyn_feedback_open {runtime_metrics['open_feedback']}",
+        "# HELP taxyn_in_process_tasks In-process asyncio background tasks",
+        "# TYPE taxyn_in_process_tasks gauge",
+        f"taxyn_in_process_tasks {runtime_metrics['in_process_tasks']}",
+        "# HELP taxyn_async_processing_enabled Whether async processing is enabled",
+        "# TYPE taxyn_async_processing_enabled gauge",
+        f"taxyn_async_processing_enabled {runtime_metrics['async_processing']}",
+    ]
+    return Response(content="\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
 
 @app.post("/api/v1/extract")
 async def extract_document(
