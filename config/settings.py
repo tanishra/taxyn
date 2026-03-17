@@ -15,7 +15,7 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = ""
     REDIS_URL: str = ""
-    DOCUMENT_STORAGE_MODE: str = "database"
+    DOCUMENT_STORAGE_MODE: str = "filesystem"
     DOCUMENT_STORAGE_PATH: str = "./data/documents"
     ENABLE_ASYNC_PROCESSING: bool = True
 
