@@ -26,6 +26,7 @@ interface ExtractionResult {
   processing_time_ms: number;
   message?: string;
   partial_data?: Record<string, unknown>;
+  result?: ExtractionResult | ExtractionResult[];
 }
 
 interface ReconciliationResult {
@@ -48,6 +49,7 @@ export const Uploader = () => {
   const [file, setFile] = useState<File | null>(null);
   const [portalFile, setPortalFile] = useState<File | null>(null);
   const [docType, setDocType] = useState("unknown");
+  const [runInBackground, setRunInBackground] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [isPortalUploading, setIsPortalUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -95,21 +97,61 @@ export const Uploader = () => {
     formData.append("file", file);
     formData.append("tenant_id", user.id);
     formData.append("doc_type", docType);
+    formData.append("async_mode", String(runInBackground));
 
     try {
       const response = await axios.post(apiUrl("/api/v1/extract"), formData, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setProgress(100);
-      setTimeout(() => {
-        setResults(Array.isArray(response.data) ? response.data : [response.data]);
-        setIsUploading(false);
-      }, 500);
+      if (response.data?.status === "queued") {
+        await pollJobStatus(response.data.request_id);
+      } else {
+        setProgress(100);
+        setTimeout(() => {
+          setResults(Array.isArray(response.data) ? response.data : [response.data]);
+          setIsUploading(false);
+        }, 500);
+      }
     } catch (err: unknown) {
       const apiErr = err as ApiError;
       setError(apiErr.response?.data?.detail || "Server Error. Make sure backend is running on port 8000.");
       setIsUploading(false);
     }
+  };
+
+  const pollJobStatus = async (requestId: string) => {
+    if (!token) return;
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 15 * 60 * 1000) {
+      const statusRes = await axios.get(apiUrl(`/api/v1/extract/${requestId}/status`), {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const payload = statusRes.data;
+      if (payload?.status === "completed" && payload?.result) {
+        const resultPayload = Array.isArray(payload.result) ? payload.result : [payload.result];
+        setProgress(100);
+        setResults(resultPayload);
+        setIsUploading(false);
+        return;
+      }
+      if (payload?.status === "completed" || payload?.status === "needs_review") {
+        setProgress(100);
+        setResults([payload]);
+        setIsUploading(false);
+        return;
+      }
+      if (payload?.status === "failed") {
+        setError(payload?.error || "Background processing failed.");
+        setIsUploading(false);
+        return;
+      }
+      if (payload?.status === "queued" || payload?.status === "processing") {
+        setProgress((prev) => (prev < 92 ? prev + 8 : prev));
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1800));
+    }
+    setError("Background processing timed out. Please check history later.");
+    setIsUploading(false);
   };
 
   const handlePortalUpload = async () => {
@@ -307,6 +349,14 @@ export const Uploader = () => {
                   </select>
                   <ChevronDown size={14} style={{ position: "absolute", right: "1rem", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", opacity: 0.5 }} />
                 </div>
+                <label style={{ display: "flex", alignItems: "center", gap: "0.45rem", fontSize: "0.82rem", color: "rgba(255,255,255,0.75)" }}>
+                  <input
+                    type="checkbox"
+                    checked={runInBackground}
+                    onChange={(e) => setRunInBackground(e.target.checked)}
+                  />
+                  Background processing
+                </label>
               </div>
 
               {docType === "reconciliation" && user && (
