@@ -41,6 +41,16 @@ class ResponseSerializer:
             "timestamp": datetime.utcnow().isoformat(),
         }
 
+    def queued_response(self, request_id: str, filename: str, doc_type: str) -> dict:
+        return {
+            "status": "queued",
+            "request_id": request_id,
+            "filename": filename,
+            "doc_type": doc_type,
+            "message": "Document accepted and queued for background processing.",
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
     def error_response(self, context: Context, error: str) -> dict:
         return {
             "status": "failed",
