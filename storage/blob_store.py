@@ -58,7 +58,9 @@ class FileSystemBlobStore(BlobStore):
         return self._base_path / f"{request_id}.pdf"
 
     async def save(self, request_id: str, content: bytes, tenant_id: str | None = None, filename: str | None = None) -> None:
-        self._blob_path(request_id).write_bytes(content)
+        path = self._blob_path(request_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
         await self._repo.set(
             f"document_meta:{request_id}",
             {
@@ -66,7 +68,7 @@ class FileSystemBlobStore(BlobStore):
                 "tenant_id": tenant_id,
                 "filename": filename,
                 "storage_mode": "filesystem",
-                "path": str(self._blob_path(request_id)),
+                "path": str(path),
             },
             tags="document_meta",
         )
