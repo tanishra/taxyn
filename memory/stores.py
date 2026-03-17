@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy import Column, String, JSON, DateTime, LargeBinary, Boolean, select, delete, text
 from agent.interfaces import MemoryRepositoryInterface
+from storage.blob_store import BlobStore, DatabaseBlobStore, FileSystemBlobStore
 
 logger = structlog.get_logger(__name__)
 
@@ -461,8 +462,45 @@ class AuditStore:
             return await self._repo.get_audit_history(tenant_id, limit)
         return []
 
+
+class ProcessingJobStore:
+    def __init__(self, repo: MemoryRepositoryInterface):
+        self._repo = repo
+
+    async def create_job(self, request_id: str, tenant_id: str, filename: str, doc_type: str) -> dict[str, Any]:
+        payload = {
+            "request_id": request_id,
+            "tenant_id": tenant_id,
+            "filename": filename,
+            "doc_type": doc_type,
+            "status": "queued",
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+        await self._repo.set(f"job:{request_id}", payload, tags="processing_job")
+        return payload
+
+    async def update_job(self, request_id: str, updates: dict[str, Any]) -> dict[str, Any]:
+        current = await self.get_job(request_id) or {"request_id": request_id}
+        current.update(updates)
+        await self._repo.set(f"job:{request_id}", current, tags="processing_job")
+        return current
+
+    async def get_job(self, request_id: str) -> dict[str, Any] | None:
+        payload = await self._repo.get(f"job:{request_id}")
+        return payload if isinstance(payload, dict) else None
+
 class DocumentStore:
-    def __init__(self, repo: MemoryRepositoryInterface): self._repo = repo
+    def __init__(
+        self,
+        repo: MemoryRepositoryInterface,
+        storage_mode: str = "database",
+        storage_path: str = "./data/documents",
+    ):
+        self._repo = repo
+        if storage_mode == "filesystem":
+            self._blob_store: BlobStore = FileSystemBlobStore(repo, storage_path)
+        else:
+            self._blob_store = DatabaseBlobStore(repo)
     async def save(
         self,
         request_id: str,
@@ -470,12 +508,8 @@ class DocumentStore:
         tenant_id: str | None = None,
         filename: str | None = None,
     ) -> None:
-        if hasattr(self._repo, 'save_blob'):
-            await self._repo.save_blob(request_id, content, tenant_id=tenant_id, filename=filename)
+        await self._blob_store.save(request_id, content, tenant_id=tenant_id, filename=filename)
     async def get(self, request_id: str) -> bytes | None:
-        if hasattr(self._repo, 'get_blob'): return await self._repo.get_blob(request_id)
-        return None
+        return await self._blob_store.get(request_id)
     async def get_meta(self, request_id: str) -> dict | None:
-        if hasattr(self._repo, 'get_blob_meta'):
-            return await self._repo.get_blob_meta(request_id)
-        return None
+        return await self._blob_store.get_meta(request_id)
