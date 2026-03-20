@@ -191,6 +191,10 @@ export const Uploader = () => {
     return Object.entries(data).filter(([key]) => !hideKeys.includes(key));
   };
 
+  const isInvoiceDocType = (docType: string | undefined) => {
+    return String(docType || "").replace("DocType.", "").toLowerCase() === "invoice";
+  };
+
   const renderValue = (value: unknown): React.ReactNode => {
     if (value === null || value === undefined) return <span style={{ opacity: 0.3 }}>null</span>;
     if (Array.isArray(value) && value.length > 0 && typeof value[0] === "object") {
@@ -321,6 +325,29 @@ export const Uploader = () => {
     }
 
     XLSX.writeFile(wb, `${resultItem.filename}_extraction.xlsx`);
+  };
+
+  const downloadERPExport = async (resultItem: ExtractionResult, format: "tally_xml" | "zoho_csv" | "quickbooks_csv") => {
+    if (!token || !resultItem.request_id) return;
+    try {
+      const response = await axios.get(apiUrl(`/api/v1/export/${resultItem.request_id}?export_format=${format}`), {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: "blob",
+      });
+      const blob = new Blob([response.data], { type: response.headers["content-type"] || "application/octet-stream" });
+      const downloadUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const extension = format === "tally_xml" ? "xml" : "csv";
+      anchor.href = downloadUrl;
+      anchor.download = `${resultItem.filename.replace(/\.pdf$/i, "")}_${format}.${extension}`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(downloadUrl);
+    } catch (err: unknown) {
+      const apiErr = err as ApiError;
+      setError(apiErr.response?.data?.detail || "Failed to generate export file.");
+    }
   };
 
   return (
@@ -508,6 +535,13 @@ export const Uploader = () => {
                       </button>
                     )}
                     <button className="btn btn-secondary" onClick={() => downloadExcel(resultItem)}><Download size={18} /> Excel</button>
+                    {isInvoiceDocType(resultItem.doc_type) && (
+                      <>
+                        <button className="btn btn-secondary" onClick={() => downloadERPExport(resultItem, "tally_xml")}><Download size={18} /> Tally XML</button>
+                        <button className="btn btn-secondary" onClick={() => downloadERPExport(resultItem, "zoho_csv")}><Download size={18} /> Zoho CSV</button>
+                        <button className="btn btn-secondary" onClick={() => downloadERPExport(resultItem, "quickbooks_csv")}><Download size={18} /> QuickBooks CSV</button>
+                      </>
+                    )}
                     <button className="btn btn-secondary" onClick={reset}><Trash2 size={18} /> New</button>
                   </div>
                 </motion.div>

@@ -45,6 +45,10 @@ export default function HistoryPage() {
   const [selected, setSelected] = useState<HistoryDetail | null>(null);
   const [openingRequestId, setOpeningRequestId] = useState<string | null>(null);
 
+  const isInvoiceDocType = (docType: string | undefined) => {
+    return String(docType || "").replace("DocType.", "").toLowerCase() === "invoice";
+  };
+
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
@@ -205,6 +209,28 @@ export default function HistoryPage() {
     XLSX.writeFile(wb, `${selected.filename || selected.request_id}_history.xlsx`);
   };
 
+  const downloadERPExport = async (format: "tally_xml" | "zoho_csv" | "quickbooks_csv") => {
+    if (!token || !selected?.request_id) return;
+    try {
+      const response = await axios.get(apiUrl(`/api/v1/export/${selected.request_id}?export_format=${format}`), {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: "blob",
+      });
+      const blob = new Blob([response.data], { type: response.headers["content-type"] || "application/octet-stream" });
+      const downloadUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const extension = format === "tally_xml" ? "xml" : "csv";
+      anchor.href = downloadUrl;
+      anchor.download = `${(selected.filename || selected.request_id).replace(/\.pdf$/i, "")}_${format}.${extension}`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(downloadUrl);
+    } catch {
+      console.error("Failed to download ERP export");
+    }
+  };
+
   const renderHistoryValue = (value: unknown): React.ReactNode => {
     if (value === null || value === undefined) {
       return <span style={{ opacity: 0.3 }}>null</span>;
@@ -344,6 +370,13 @@ export default function HistoryPage() {
               </div>
               <div style={{ display: "flex", gap: "0.75rem" }}>
                 <button className="btn btn-secondary" onClick={downloadHistoryExcel}>Download Excel</button>
+                {isInvoiceDocType(selected.doc_type) && (
+                  <>
+                    <button className="btn btn-secondary" onClick={() => downloadERPExport("tally_xml")}>Tally XML</button>
+                    <button className="btn btn-secondary" onClick={() => downloadERPExport("zoho_csv")}>Zoho CSV</button>
+                    <button className="btn btn-secondary" onClick={() => downloadERPExport("quickbooks_csv")}>QuickBooks CSV</button>
+                  </>
+                )}
                 <button className="btn btn-secondary" onClick={() => setSelected(null)}>Close</button>
               </div>
             </div>
@@ -351,7 +384,7 @@ export default function HistoryPage() {
             <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr", overflow: "hidden" }}>
               <div style={{ borderRight: "1px solid var(--glass-border)", background: "rgba(0,0,0,0.3)" }}>
                 <iframe
-                  src={apiUrl(`/api/v1/document/${selected.request_id}`)}
+                  src={apiUrl(`/api/v1/document/${selected.request_id}${token ? `?token=${encodeURIComponent(token)}` : ""}`)}
                   style={{ width: "100%", height: "100%", border: "none" }}
                   title="History Document"
                 />
