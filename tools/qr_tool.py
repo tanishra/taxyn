@@ -9,8 +9,6 @@ secure invoice data for downstream validation.
 import base64
 import json
 import structlog
-from pdf2image import convert_from_bytes
-from pyzbar.pyzbar import decode
 from agent.context import Context, ToolResult
 from agent.interfaces import ToolInterface
 
@@ -30,6 +28,13 @@ class QRTool(ToolInterface):
         logger.info("qr_tool.started", filename=context.filename)
 
         try:
+            try:
+                from pdf2image import convert_from_bytes
+                from pyzbar.pyzbar import decode
+            except ImportError as e:
+                logger.warning("qr_tool.dependencies_missing", error=str(e))
+                return self._no_qr_found(context)
+
             # Convert first page of PDF to image (most QRs are on page 1)
             # dpi=200 is a good balance between speed and readability
             images = convert_from_bytes(context.raw_bytes, first_page=1, last_page=1, dpi=200)
