@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   Upload,
@@ -55,9 +55,12 @@ export const Uploader = () => {
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<ExtractionResult[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [isReviewOpen, setIsReviewOpen] = useState(false);
   const [resolvedRequestIds, setResolvedRequestIds] = useState<string[]>([]);
   const [reviewTarget, setReviewTarget] = useState<ExtractionResult | null>(null);
+  const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
+  const cancelRequestedRef = useRef(false);
 
   // Simulate progress
   useEffect(() => {
@@ -78,6 +81,7 @@ export const Uploader = () => {
     if (e.target.files && e.target.files[0]) {
       setFile(e.target.files[0]);
       setError(null);
+      setNotice(null);
     }
   };
 
@@ -90,6 +94,8 @@ export const Uploader = () => {
     if (!file) return;
     setIsUploading(true);
     setError(null);
+    setNotice(null);
+    cancelRequestedRef.current = false;
     setResults([]);
     setResolvedRequestIds([]);
 
@@ -104,25 +110,28 @@ export const Uploader = () => {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (response.data?.status === "queued") {
+        setActiveRequestId(response.data.request_id);
         await pollJobStatus(response.data.request_id);
       } else {
         setProgress(100);
         setTimeout(() => {
           setResults(Array.isArray(response.data) ? response.data : [response.data]);
           setIsUploading(false);
+          setActiveRequestId(null);
         }, 500);
       }
     } catch (err: unknown) {
       const apiErr = err as ApiError;
       setError(apiErr.response?.data?.detail || "Server Error. Make sure backend is running on port 8000.");
       setIsUploading(false);
+      setActiveRequestId(null);
     }
   };
 
   const pollJobStatus = async (requestId: string) => {
     if (!token) return;
     const startedAt = Date.now();
-    while (Date.now() - startedAt < 15 * 60 * 1000) {
+    while (Date.now() - startedAt < 15 * 60 * 1000 && !cancelRequestedRef.current) {
       const statusRes = await axios.get(apiUrl(`/api/v1/extract/${requestId}/status`), {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -132,17 +141,27 @@ export const Uploader = () => {
         setProgress(100);
         setResults(resultPayload);
         setIsUploading(false);
+        setActiveRequestId(null);
         return;
       }
       if (payload?.status === "completed" || payload?.status === "needs_review") {
         setProgress(100);
         setResults([payload]);
         setIsUploading(false);
+        setActiveRequestId(null);
         return;
       }
       if (payload?.status === "failed") {
         setError(payload?.error || "Background processing failed.");
         setIsUploading(false);
+        setActiveRequestId(null);
+        return;
+      }
+      if (payload?.status === "cancelled") {
+        setNotice("Processing cancelled.");
+        setIsUploading(false);
+        setProgress(0);
+        setActiveRequestId(null);
         return;
       }
       if (payload?.status === "queued" || payload?.status === "processing") {
@@ -150,8 +169,29 @@ export const Uploader = () => {
       }
       await new Promise((resolve) => setTimeout(resolve, 1800));
     }
+    if (cancelRequestedRef.current) {
+      return;
+    }
     setError("Background processing timed out. Please check history later.");
     setIsUploading(false);
+    setActiveRequestId(null);
+  };
+
+  const cancelUpload = async () => {
+    if (!token || !activeRequestId) return;
+    cancelRequestedRef.current = true;
+    try {
+      await axios.post(apiUrl(`/api/v1/extract/${activeRequestId}/cancel`), {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setNotice("Processing cancelled.");
+      setIsUploading(false);
+      setProgress(0);
+      setActiveRequestId(null);
+    } catch (err: unknown) {
+      const apiErr = err as ApiError;
+      setError(apiErr.response?.data?.detail || "Failed to cancel processing.");
+    }
   };
 
   const handlePortalUpload = async () => {
@@ -179,10 +219,13 @@ export const Uploader = () => {
     setFile(null);
     setResults([]);
     setError(null);
+    setNotice(null);
+    cancelRequestedRef.current = false;
     setProgress(0);
     setIsReviewOpen(false);
     setResolvedRequestIds([]);
     setReviewTarget(null);
+    setActiveRequestId(null);
   };
 
   const getFilteredData = (resultItem: ExtractionResult) => {
@@ -428,6 +471,18 @@ export const Uploader = () => {
                       {file.name} • {formatFileSize(file.size)}
                     </p>
                   )}
+                  {runInBackground && (
+                    <div style={{ display: "flex", justifyContent: "center", marginTop: "1rem" }}>
+                      <button
+                        className="btn btn-secondary"
+                        type="button"
+                        onClick={cancelUpload}
+                        disabled={!activeRequestId}
+                      >
+                        {activeRequestId ? "Cancel Processing" : "Preparing Cancellation..."}
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div style={{ textAlign: "center" }}>
@@ -453,6 +508,11 @@ export const Uploader = () => {
             {error && (
               <div style={{ marginTop: "1rem", padding: "0.9rem 1rem", borderRadius: "0.85rem", border: "1px solid rgba(239,68,68,0.35)", background: "rgba(239,68,68,0.12)", color: "#fca5a5" }}>
                 {error}
+              </div>
+            )}
+            {notice && (
+              <div style={{ marginTop: "1rem", padding: "0.9rem 1rem", borderRadius: "0.85rem", border: "1px solid rgba(129,140,248,0.35)", background: "rgba(99,102,241,0.12)", color: "#c7d2fe" }}>
+                {notice}
               </div>
             )}
           </motion.div>

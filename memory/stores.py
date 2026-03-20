@@ -489,6 +489,12 @@ class ProcessingJobStore:
         payload = await self._repo.get(f"job:{request_id}")
         return payload if isinstance(payload, dict) else None
 
+    async def list_jobs(self) -> list[dict[str, Any]]:
+        if hasattr(self._repo, "get_by_tag"):
+            rows = await self._repo.get_by_tag("processing_job")
+            return [row for row in rows if isinstance(row, dict)]
+        return []
+
 class DocumentStore:
     def __init__(
         self,

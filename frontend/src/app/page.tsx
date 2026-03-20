@@ -32,11 +32,9 @@ export default function Home() {
           Extract, validate, and reconcile Indian tax documents with 99% accuracy using autonomous AI agents.
         </p>
 
-        {!user && (
-          <div className="cta-group">
-            <Link href="/auth/signup" className="btn btn-primary">Start Auditing Now <ArrowRight size={18} /></Link>
-          </div>
-        )}
+        <div className="cta-group">
+          <Link href={user ? "#uploader" : "/auth/signup"} className="btn btn-primary">Start Auditing Now <ArrowRight size={18} /></Link>
+        </div>
       </div>
 
       <section className="info-shell">
@@ -114,7 +112,7 @@ export default function Home() {
       </section>
 
       {/* ALWAYS SHOW UPLOADER (LOGIN GUARD HANDLED INSIDE) */}
-      <div style={{ display: "flex", justifyContent: "center", paddingBottom: "3rem" }}>
+      <div id="uploader" style={{ display: "flex", justifyContent: "center", paddingBottom: "3rem" }}>
         <Uploader />
       </div>
 
