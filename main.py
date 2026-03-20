@@ -6,6 +6,7 @@ Wires all components together using dependency injection.
 
 import structlog
 import asyncio
+import multiprocessing
 import uuid
 import random
 import io # Added for pypdf
@@ -45,6 +46,8 @@ structlog.configure(
 )
 logger = structlog.get_logger(__name__)
 processing_tasks: set[asyncio.Task] = set()
+processing_tasks_by_request_id: dict[str, asyncio.Task] = {}
+processing_processes_by_request_id: dict[str, multiprocessing.Process] = {}
 
 # ── Dependency Container ──────────────────────────────────
 class Container:
@@ -237,8 +240,14 @@ async def _enforce_rate_limit(scope: str, actor: str, limit: int, window_seconds
 
 
 async def _collect_runtime_metrics() -> dict[str, int | str]:
+    stale_request_ids = [request_id for request_id, process in processing_processes_by_request_id.items() if not process.is_alive()]
+    for request_id in stale_request_ids:
+        process = processing_processes_by_request_id.pop(request_id, None)
+        if process is not None:
+            process.join(timeout=0.1)
+
     pending_reviews = await container.hitl_queue.get_pending()
-    processing_jobs = await container.repo.get_by_tag("processing_job") if hasattr(container.repo, "get_by_tag") else []
+    processing_jobs = await container.job_store.list_jobs()
     document_meta = await container.repo.get_by_tag("document_meta") if hasattr(container.repo, "get_by_tag") else []
     feedback_items = await container.repo.get_by_tag("feedback") if hasattr(container.repo, "get_by_tag") else []
 
@@ -246,6 +255,7 @@ async def _collect_runtime_metrics() -> dict[str, int | str]:
     active_jobs = 0
     completed_jobs = 0
     failed_jobs = 0
+    cancelled_jobs = 0
     for item in processing_jobs:
         if not isinstance(item, dict):
             continue
@@ -258,6 +268,8 @@ async def _collect_runtime_metrics() -> dict[str, int | str]:
             completed_jobs += 1
         elif status == "failed":
             failed_jobs += 1
+        elif status == "cancelled":
+            cancelled_jobs += 1
 
     open_feedback = sum(
         1 for item in feedback_items
@@ -272,9 +284,10 @@ async def _collect_runtime_metrics() -> dict[str, int | str]:
         "active_jobs": active_jobs,
         "completed_jobs": completed_jobs,
         "failed_jobs": failed_jobs,
+        "cancelled_jobs": cancelled_jobs,
         "document_meta_records": len(document_meta),
         "open_feedback": open_feedback,
-        "in_process_tasks": len(processing_tasks),
+        "in_process_tasks": len(processing_tasks) + len(processing_processes_by_request_id),
     }
 
 
@@ -345,6 +358,17 @@ async def _process_job(request_id: str, contexts: list[Context]) -> None:
                 "result": result,
             },
         )
+    except asyncio.CancelledError:
+        logger.info("background_processing.cancelled", request_id=request_id)
+        await container.job_store.update_job(
+            request_id,
+            {
+                "status": "cancelled",
+                "completed_at": datetime.utcnow().isoformat(),
+                "error": "Processing cancelled by user",
+            },
+        )
+        raise
     except Exception as e:
         logger.error("background_processing.failed", request_id=request_id, error=str(e), exc_info=True)
         await container.job_store.update_job(
@@ -357,10 +381,18 @@ async def _process_job(request_id: str, contexts: list[Context]) -> None:
         )
 
 
+def _run_job_process(request_id: str, contexts: list[Context]) -> None:
+    asyncio.run(_process_job(request_id, contexts))
+
+
 def _schedule_background_job(request_id: str, contexts: list[Context]) -> None:
-    task = asyncio.create_task(_process_job(request_id, contexts))
-    processing_tasks.add(task)
-    task.add_done_callback(processing_tasks.discard)
+    process = multiprocessing.Process(
+        target=_run_job_process,
+        args=(request_id, contexts),
+        daemon=True,
+    )
+    process.start()
+    processing_processes_by_request_id[request_id] = process
 
 # ── App lifecycle ──────────────────────────────────────────
 @asynccontextmanager
@@ -856,6 +888,9 @@ async def metrics():
         "# HELP taxyn_jobs_failed Failed processing jobs recorded in the store",
         "# TYPE taxyn_jobs_failed gauge",
         f"taxyn_jobs_failed {runtime_metrics['failed_jobs']}",
+        "# HELP taxyn_jobs_cancelled Cancelled processing jobs recorded in the store",
+        "# TYPE taxyn_jobs_cancelled gauge",
+        f"taxyn_jobs_cancelled {runtime_metrics['cancelled_jobs']}",
         "# HELP taxyn_document_meta_records Number of document metadata records tracked",
         "# TYPE taxyn_document_meta_records gauge",
         f"taxyn_document_meta_records {runtime_metrics['document_meta_records']}",
@@ -938,6 +973,59 @@ async def get_extract_status(request_id: str, user: Optional[User] = Depends(get
         if not (_is_admin_user(user) or user.id == tenant_id):
             raise HTTPException(status_code=403, detail="Not authorized to access this request")
     return job
+
+
+@app.post("/api/v1/extract/{request_id}/cancel")
+async def cancel_extract(request_id: str, user: User = Depends(get_current_user)):
+    job = await container.job_store.get_job(request_id)
+    if not isinstance(job, dict):
+        raise HTTPException(status_code=404, detail="Processing request not found")
+
+    tenant_id = job.get("tenant_id")
+    if tenant_id and not (_is_admin_user(user) or user.id == tenant_id):
+        raise HTTPException(status_code=403, detail="Not authorized to cancel this request")
+
+    status = str(job.get("status", "")).lower()
+    if status in {"completed", "failed", "cancelled"}:
+        return {"status": status, "message": f"Request already {status}"}
+
+    process = processing_processes_by_request_id.get(request_id)
+    if process and process.is_alive():
+        process.terminate()
+        process.join(timeout=1.0)
+        processing_processes_by_request_id.pop(request_id, None)
+        await container.job_store.update_job(
+            request_id,
+            {
+                "status": "cancelled",
+                "completed_at": datetime.utcnow().isoformat(),
+                "error": "Processing cancelled by user",
+            },
+        )
+        return {"status": "cancelled", "message": "Processing cancelled"}
+
+    task = processing_tasks_by_request_id.get(request_id)
+    if task and not task.done():
+        task.cancel()
+        await container.job_store.update_job(
+            request_id,
+            {
+                "status": "cancelled",
+                "completed_at": datetime.utcnow().isoformat(),
+                "error": "Processing cancelled by user",
+            },
+        )
+        return {"status": "cancelled", "message": "Processing cancelled"}
+
+    await container.job_store.update_job(
+        request_id,
+        {
+            "status": "cancelled",
+            "completed_at": datetime.utcnow().isoformat(),
+            "error": "Processing cancelled before task execution",
+        },
+    )
+    return {"status": "cancelled", "message": "Processing cancelled"}
 
 @app.get("/api/v1/document/{request_id}")
 async def get_document(
