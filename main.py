@@ -25,6 +25,7 @@ from agent.context import Context, DocType, ProcessingStatus
 from skills.factory import SkillFactory
 from memory.stores import SQLRepository, InMemoryRepository, SchemaStore, CorrectionStore, AuditStore, DocumentStore, ProcessingJobStore, UserStore, User, StoreItem, DocumentBlob
 from output.serializer import ResponseSerializer
+from output.erp_exporter import ERPExporter
 from output.hitl_queue import HITLQueue
 from observability.tracer import Tracer
 from api.channels.rest_adapter import RestAdapter
@@ -62,6 +63,7 @@ class Container:
         )
 
         self.serializer = ResponseSerializer()
+        self.erp_exporter = ERPExporter()
         self.hitl_queue = HITLQueue(self.repo)
         self.tracer = Tracer(self.audit_store)
         self.rate_limiter = RateLimiter(self.repo)
@@ -188,6 +190,32 @@ def _extract_persisted_data(trace: dict) -> dict:
             if isinstance(parser_fields, dict) and parser_fields:
                 return parser_fields
     return {}
+
+
+async def _authorized_trace_for_request(request_id: str, user: User, tenant_id: Optional[str] = None) -> dict:
+    candidate_tenants = []
+    if tenant_id:
+        candidate_tenants.append(tenant_id)
+    if _is_admin_user(user):
+        document_meta = await container.document_store.get_meta(request_id)
+        if isinstance(document_meta, dict) and document_meta.get("tenant_id"):
+            candidate_tenants.append(document_meta["tenant_id"])
+        history_rows = await container.repo.get_by_tag("processing_job") if hasattr(container.repo, "get_by_tag") else []
+        for row in history_rows:
+            if isinstance(row, dict) and row.get("request_id") == request_id and row.get("tenant_id"):
+                candidate_tenants.append(row["tenant_id"])
+    candidate_tenants.append(user.id)
+
+    seen = set()
+    for candidate in candidate_tenants:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        trace = await container.audit_store.get(candidate, request_id)
+        if isinstance(trace, dict):
+            if _is_admin_user(user) or candidate == user.id:
+                return trace
+    raise HTTPException(status_code=404, detail="History item not found")
 
 
 def _request_actor(request: Request, user: Optional[User] = None, fallback: str = "anonymous") -> str:
@@ -930,6 +958,33 @@ async def get_document(
         if not (_is_admin_user(effective_user) or effective_user.id == tenant_id):
             raise HTTPException(status_code=403, detail="Not authorized to access this document")
     return Response(content=content, media_type="application/pdf")
+
+
+@app.get("/api/v1/export/{request_id}")
+async def export_document(
+    request_id: str,
+    export_format: str = Query(..., pattern="^(tally_xml|zoho_csv|quickbooks_csv)$"),
+    tenant_id: Optional[str] = Query(default=None),
+    user: User = Depends(get_current_user),
+):
+    trace = await _authorized_trace_for_request(request_id, user, tenant_id=tenant_id)
+    extracted_data = _extract_persisted_data(trace)
+    if not extracted_data:
+        raise HTTPException(status_code=400, detail="No extracted data available for export")
+
+    doc_type = str(trace.get("doc_type", "unknown")).replace("DocType.", "").lower()
+    filename = str(trace.get("filename", "document.pdf")).rsplit(".", 1)[0]
+
+    try:
+        content, media_type, extension = container.erp_exporter.export(doc_type, extracted_data, export_format)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}_{export_format}.{extension}"'},
+    )
 
 @app.post("/api/v1/reconcile/upload-portal")
 async def upload_portal_data(
