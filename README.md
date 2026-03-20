@@ -33,6 +33,7 @@ Taxyn is an AI-powered platform that automates Indian financial document audits:
 5. **Continuous Learning:** Remembers every human correction, improving vendor-specific accuracy over time.
 6. **Background Processing:** Supports async document jobs with polling so large uploads do not have to block a single request.
 7. **Operational Visibility:** Exposes `/health` and `/metrics` endpoints for runtime status, queue depth, and job tracking.
+8. **ERP-Ready Exports:** Generates Tally XML plus Zoho and QuickBooks CSV exports directly from verified invoice data without requiring external API keys.
 
 ---
 
@@ -66,6 +67,7 @@ graph LR
         T3["ValidatorTool\nDeterministic Compliance"]
         T4["PortalParser\nPandas Excel Engine"]
         T5["HITL Queue\nDurable Review + Correction Flow"]
+        T6["ERP Exporter\nTally XML + CSV Templates"]
     end
 
     subgraph MEMORY["PERSISTENCE (DB + FILESYSTEM/DB BLOBS)"]
@@ -87,6 +89,7 @@ graph LR
     S1 & S2 & S3 & S4 --> T1 --> T2 --> T3
     S4 --> T4
     T3 --> T5
+    T3 --> T6
     MEMORY --> AL
     AL --> M5
     OPS --> AL
@@ -127,6 +130,12 @@ streamlit run app.py
 # 5. Runtime Checks
 # Health:   http://localhost:8000/health
 # Metrics:  http://localhost:8000/metrics
+
+# 6. Try Invoice ERP Export
+# Process an invoice, then use the UI buttons to download:
+# - Tally XML
+# - Zoho CSV
+# - QuickBooks CSV
 ```
 
 ---
@@ -138,6 +147,7 @@ streamlit run app.py
 - **Side-by-Side Verification:** Professional UI to verify AI extractions against the source PDF in real-time.
 - **Flexible Persistence:** Store document binaries on the local filesystem for single-server deployments or in the database, while keeping jobs, audits, and profiles in persistent storage.
 - **Metrics Endpoint:** Track runtime health, pending reviews, active jobs, completed jobs, and failed jobs through `/metrics`.
+- **ERP Export:** Download verified invoice data as Tally XML or import-ready Zoho and QuickBooks CSV files without API integration.
 - **Vendor Memory:** System learns from your corrections once and applies them to all future documents from that vendor.
 
 ---
@@ -146,7 +156,7 @@ streamlit run app.py
 
 Taxyn is specialized for the unique layouts of Indian compliance documentation:
 
-- **Invoices:** B2B and B2C invoices with multi-line item table extraction.
+- **Invoices:** B2B and B2C invoices with multi-line item table extraction, optional QR authenticity checks, and ERP-ready export output.
 - **Bank Statements:** Full ledger processing with transaction extraction plus IFSC and balance consistency checks.
 - **GST Returns & Reconciliation:** Parses GSTR summaries and supports portal Excel-assisted reconciliation workflows with partial-match review states.
 - **TDS Certificates:** Extracts and validates core Form 16/16A identifiers including PAN and TAN.
@@ -156,7 +166,7 @@ Taxyn is specialized for the unique layouts of Indian compliance documentation:
 ## Roadmap & Contributions
 
 - **Bulk Ingestion:** Extend the current async single-server job model into a distributed worker architecture for high-volume processing.
-- **Direct ERP Sync:** One-click data push to Tally Prime and Zoho Books.
+- **Direct ERP Sync:** Extend the current file-based Tally XML and CSV exports into one-click connected integrations with Tally Prime and Zoho Books.
 - **Risk Scoring:** Automated vendor fraud detection based on GST registration status.
 - **Mobile App:** Rapid capture of physical bills via smartphone camera.
 - **Contribute:** PRs welcome! Help us make Taxyn better.
