@@ -191,6 +191,13 @@ export const Uploader = () => {
     return Object.entries(data).filter(([key]) => !hideKeys.includes(key));
   };
 
+  const formatFileSize = (sizeInBytes: number | undefined) => {
+    if (!sizeInBytes || sizeInBytes < 0) return "0 KB";
+    if (sizeInBytes < 1024) return `${sizeInBytes} B`;
+    if (sizeInBytes < 1024 * 1024) return `${(sizeInBytes / 1024).toFixed(2)} KB`;
+    return `${(sizeInBytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
   const isInvoiceDocType = (docType: string | undefined) => {
     return String(docType || "").replace("DocType.", "").toLowerCase() === "invoice";
   };
@@ -408,14 +415,24 @@ export const Uploader = () => {
 
               {isUploading ? (
                 <div className="progress-container">
-                  <h3 style={{ marginBottom: "1rem" }}>Processing...</h3>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "1rem" }}>
+                    <h3>Processing...</h3>
+                  </div>
                   <div className="progress-track"><motion.div className="progress-bar" animate={{ width: `${progress}%` }} transition={{ type: "spring", stiffness: 50 }} /></div>
-                  <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.875rem" }}>{progress < 40 ? "Extracting..." : progress < 80 ? "Analyzing..." : "Finalizing..."}</p>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
+                    <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.875rem" }}>{progress < 40 ? "Extracting..." : progress < 80 ? "Analyzing..." : "Finalizing..."}</p>
+                    <p style={{ color: "#fff", fontSize: "0.85rem", fontWeight: 700 }}>{Math.round(progress)}%</p>
+                  </div>
+                  {file && (
+                    <p style={{ color: "rgba(255,255,255,0.38)", fontSize: "0.78rem" }}>
+                      {file.name} • {formatFileSize(file.size)}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div style={{ textAlign: "center" }}>
                   <h3 style={{ marginBottom: "0.5rem" }}>{file ? file.name : "Upload Document"}</h3>
-                  <p style={{ color: "rgba(255,255,255,0.5)" }}>{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB • PDF` : "Drag and drop or click to browse"}</p>
+                  <p style={{ color: "rgba(255,255,255,0.5)" }}>{file ? `${formatFileSize(file.size)} • PDF` : "Drag and drop or click to browse"}</p>
                 </div>
               )}
 
