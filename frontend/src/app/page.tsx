@@ -29,7 +29,7 @@ export default function Home() {
           Your Digital <span className="text-gradient">Financial Auditor</span>
         </h1>
         <p className="hero-subtitle">
-          Extract, validate, and reconcile Indian tax documents with 99% accuracy using autonomous AI agents.
+          Extract, validate, and reconcile Indian tax documents with AI-assisted workflows built for real compliance operations.
         </p>
 
         <div className="cta-group">
