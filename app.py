@@ -159,7 +159,7 @@ st.divider()
 st.markdown("**🔄 Pipeline**")
 steps = [
     ("01", "ExtractorTool", "Docling reads PDF"),
-    ("02", "ParserTool", "GPT-4o extracts fields"),
+    ("02", "ParserTool", "GPT-4o-mini extracts fields"),
     ("03", "ValidatorTool", "GST/PAN/GSTIN checks"),
     ("04", "ConfidenceScorer", "Scores each field 0→1"),
     ("05", "Confidence Gate", "≥0.85 → Done  <0.85 → HITL"),

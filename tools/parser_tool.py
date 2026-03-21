@@ -1,5 +1,5 @@
 """
-parser_tool.py — Raw Text → Structured Fields (uses Instructor + GPT-4o)
+parser_tool.py — Raw Text → Structured Fields (uses Instructor + GPT-4o-mini)
 ==========================================================================
 Single Responsibility: Take raw extracted text and use an LLM
 to pull out specific fields. 

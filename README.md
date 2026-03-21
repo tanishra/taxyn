@@ -6,7 +6,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o-412991?style=for-the-badge&logo=openai&logoColor=white)](https://openai.com)
+[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o--mini-412991?style=for-the-badge&logo=openai&logoColor=white)](https://openai.com)
 [![Docling](https://img.shields.io/badge/IBM-Docling-054ADA?style=for-the-badge&logo=ibm&logoColor=white)](https://github.com/DS4SD/docling)
 [![Instructor](https://img.shields.io/badge/Instructor-Structured_Output-E535AB?style=for-the-badge)](https://github.com/jxnl/instructor)
 [![License](https://img.shields.io/badge/License-MIT-FF6B6B?style=for-the-badge)](LICENSE)
@@ -63,7 +63,7 @@ graph LR
 
     subgraph TOOLS["TOOLS"]
         T1["ExtractorTool\nDocling"]
-        T2["ParserTool\nGPT-4o + Instructor"]
+        T2["ParserTool\nGPT-4o-mini + Instructor"]
         T3["ValidatorTool\nDeterministic Compliance"]
         T4["PortalParser\nPandas Excel Engine"]
         T5["HITL Queue\nDurable Review + Correction Flow"]
