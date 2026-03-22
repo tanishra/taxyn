@@ -5,12 +5,14 @@ Cascading Fallback: Postgres -> SQLite -> In-Memory
 """
 
 import json
+import ssl
 import structlog
 from typing import Any, List, Optional
 from datetime import datetime, UTC, timedelta
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy import Column, String, JSON, DateTime, LargeBinary, Boolean, select, delete, text
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from agent.interfaces import MemoryRepositoryInterface
 from storage.blob_store import BlobStore, DatabaseBlobStore, FileSystemBlobStore
 
@@ -70,6 +72,7 @@ class DocumentBlob(Base):
 
 class SQLRepository(MemoryRepositoryInterface):
     def __init__(self, db_url: str):
+        db_url, connect_args = self._normalize_db_url(db_url)
         engine_kwargs = {"pool_pre_ping": True}
         if "sqlite" not in db_url:
             engine_kwargs.update(
@@ -79,10 +82,49 @@ class SQLRepository(MemoryRepositoryInterface):
                     "max_overflow": 20,
                 }
             )
+        if connect_args:
+            engine_kwargs["connect_args"] = connect_args
         self.engine = create_async_engine(db_url, **engine_kwargs)
         self.async_session = sessionmaker(
             self.engine, expire_on_commit=False, class_=AsyncSession
         )
+
+    def _normalize_db_url(self, db_url: str) -> tuple[str, dict[str, Any]]:
+        connect_args: dict[str, Any] = {}
+
+        if db_url.startswith("postgres://"):
+            db_url = "postgresql+asyncpg://" + db_url[len("postgres://"):]
+        elif db_url.startswith("postgresql://"):
+            db_url = "postgresql+asyncpg://" + db_url[len("postgresql://"):]
+
+        if not db_url.startswith("postgresql+asyncpg://"):
+            return db_url, connect_args
+
+        parsed = urlparse(db_url)
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+
+        ssl_value = (query.pop("sslmode", "") or query.pop("ssl", "")).strip().lower()
+        query.pop("channel_binding", None)
+        query.pop("gssencmode", None)
+        query.pop("target_session_attrs", None)
+
+        if ssl_value in {"require", "verify-ca", "verify-full", "true", "1", "yes"}:
+            connect_args["ssl"] = ssl.create_default_context()
+        elif ssl_value in {"disable", "false", "0", "no"}:
+            connect_args["ssl"] = False
+
+        netloc = parsed.netloc
+        if parsed.hostname and "neon.tech" in parsed.hostname and parsed.port is None:
+            credentials = ""
+            if parsed.username:
+                credentials = parsed.username
+                if parsed.password is not None:
+                    credentials += f":{parsed.password}"
+                credentials += "@"
+            netloc = f"{credentials}{parsed.hostname}:5432"
+
+        normalized_url = urlunparse(parsed._replace(netloc=netloc, query=urlencode(query)))
+        return normalized_url, connect_args
 
     async def init_db(self):
         async with self.engine.begin() as conn:
