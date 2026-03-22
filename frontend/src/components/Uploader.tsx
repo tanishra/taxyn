@@ -35,6 +35,21 @@ interface ReconciliationResult {
   diff: number;
 }
 
+interface BankStatementSummary {
+  transaction_count?: number;
+  categorized_transactions?: number;
+  uncategorized_transactions?: number;
+  category_coverage?: number;
+  total_inflow?: number;
+  total_outflow?: number;
+  total_transfers?: number;
+  total_unknown?: number;
+  category_totals?: Record<string, number>;
+  top_counterparties?: Array<{ name?: string; count?: number }>;
+  duplicate_candidates?: number;
+  high_value_transactions?: number;
+}
+
 interface ApiError {
   response?: {
     data?: {
@@ -230,7 +245,7 @@ export const Uploader = () => {
 
   const getFilteredData = (resultItem: ExtractionResult) => {
     const data = resultItem?.extracted_data || resultItem?.partial_data || {};
-    const hideKeys = ["raw_text", "char_count", "recon_results", "portal_data"];
+    const hideKeys = ["raw_text", "char_count", "recon_results", "portal_data", "category_totals", "statement_summary", "transactions"];
     return Object.entries(data).filter(([key]) => !hideKeys.includes(key));
   };
 
@@ -245,14 +260,21 @@ export const Uploader = () => {
     return String(docType || "").replace("DocType.", "").toLowerCase() === "invoice";
   };
 
-  const renderValue = (value: unknown): React.ReactNode => {
+  const renderValue = (value: unknown, options?: { preserveTableLayout?: boolean }): React.ReactNode => {
     if (value === null || value === undefined) return <span style={{ opacity: 0.3 }}>null</span>;
     if (Array.isArray(value) && value.length > 0 && typeof value[0] === "object") {
       const firstRow = value[0] as Record<string, unknown>;
       const cols = Object.keys(firstRow);
+      const preserveTableLayout = options?.preserveTableLayout === true;
       return (
-        <div className="extraction-table-container" style={{ margin: "0.5rem 0", background: "rgba(0,0,0,0.2)" }}>
-          <table className="extraction-table" style={{ fontSize: "0.75rem" }}>
+        <div
+          className={`extraction-table-container ${preserveTableLayout ? "transaction-table-container" : ""}`}
+          style={{ margin: "0.5rem 0", background: "rgba(0,0,0,0.2)" }}
+        >
+          <table
+            className={`extraction-table ${preserveTableLayout ? "transaction-table" : ""}`}
+            style={{ fontSize: "0.75rem" }}
+          >
             <thead><tr>{cols.map(c => <th key={c}>{c.replace(/_/g, " ")}</th>)}</tr></thead>
             <tbody>{value.map((item, i) => <tr key={i}>{cols.map(c => <td key={c}>{renderValue((item as Record<string, unknown>)[c])}</td>)}</tr>)}</tbody>
           </table>
@@ -269,6 +291,89 @@ export const Uploader = () => {
       );
     }
     return String(value);
+  };
+
+  const formatCurrency = (value: unknown) => {
+    const amount = typeof value === "number" ? value : Number(value || 0);
+    return `₹${amount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+  };
+
+  const renderKeyValueTable = (data: Record<string, unknown>) => (
+    <div className="extraction-table-container" style={{ margin: "0.5rem 0", background: "rgba(0,0,0,0.12)" }}>
+      <table className="extraction-table" style={{ fontSize: "0.75rem" }}>
+        <tbody>
+          {Object.entries(data).map(([key, value]) => (
+            <tr key={key}>
+              <td style={{ fontWeight: 700, width: "45%" }}>{key.replace(/_/g, " ")}</td>
+              <td>{typeof value === "number" ? formatCurrency(value) : renderValue(value)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const renderStatementSummary = (summary: BankStatementSummary) => (
+    <div style={{ display: "grid", gap: "1rem" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.75rem" }}>
+        {[
+          ["Transaction Count", summary.transaction_count ?? 0],
+          ["Categorized", summary.categorized_transactions ?? 0],
+          ["Uncategorized", summary.uncategorized_transactions ?? 0],
+          ["Coverage", `${Math.round((summary.category_coverage ?? 0) * 100)}%`],
+          ["Total Inflow", formatCurrency(summary.total_inflow ?? 0)],
+          ["Total Outflow", formatCurrency(summary.total_outflow ?? 0)],
+          ["Transfers", formatCurrency(summary.total_transfers ?? 0)],
+          ["Unknown", formatCurrency(summary.total_unknown ?? 0)],
+          ["Duplicate Candidates", summary.duplicate_candidates ?? 0],
+          ["High Value Transactions", summary.high_value_transactions ?? 0],
+        ].map(([label, value]) => (
+          <div key={label} style={{ padding: "0.75rem", borderRadius: "0.85rem", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
+            <div style={{ fontSize: "0.72rem", opacity: 0.6, marginBottom: "0.25rem", textTransform: "uppercase" }}>{label}</div>
+            <div style={{ fontWeight: 700 }}>{String(value)}</div>
+          </div>
+        ))}
+      </div>
+
+      {!!summary.category_totals && Object.keys(summary.category_totals).length > 0 && (
+        <div>
+          <div style={{ fontSize: "0.78rem", fontWeight: 700, marginBottom: "0.45rem" }}>Category Totals</div>
+          {renderKeyValueTable(summary.category_totals)}
+        </div>
+      )}
+
+      {!!summary.top_counterparties?.length && (
+        <div>
+          <div style={{ fontSize: "0.78rem", fontWeight: 700, marginBottom: "0.45rem" }}>Top Counterparties</div>
+          <div className="extraction-table-container" style={{ background: "rgba(0,0,0,0.12)" }}>
+            <table className="extraction-table" style={{ fontSize: "0.75rem" }}>
+              <thead><tr><th>Name</th><th>Count</th></tr></thead>
+              <tbody>
+                {summary.top_counterparties.map((item, index) => (
+                  <tr key={`${item.name || "counterparty"}-${index}`}>
+                    <td>{item.name || "Unknown"}</td>
+                    <td>{item.count ?? 0}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const renderFieldValue = (field: string, value: unknown): React.ReactNode => {
+    if (field === "transactions" && Array.isArray(value)) {
+      return renderValue(value, { preserveTableLayout: true });
+    }
+    if (field === "statement_summary" && value && typeof value === "object" && !Array.isArray(value)) {
+      return renderStatementSummary(value as BankStatementSummary);
+    }
+    if (field === "category_totals" && value && typeof value === "object" && !Array.isArray(value)) {
+      return renderKeyValueTable(value as Record<string, unknown>);
+    }
+    return renderValue(value);
   };
 
   const downloadExcel = (resultItem: ExtractionResult) => {
@@ -530,6 +635,14 @@ export const Uploader = () => {
               const itemResolved = resolvedRequestIds.includes(resultItem.request_id);
               const itemConfidencePercent = (itemResolved ? 1.0 : resultItem?.confidence || 0) * 100;
               const itemConfidenceRingStyle = { "--confidence": itemConfidencePercent } as React.CSSProperties;
+              const statementSummary = (
+                resultItem?.extracted_data?.statement_summary &&
+                typeof resultItem.extracted_data.statement_summary === "object" &&
+                !Array.isArray(resultItem.extracted_data.statement_summary)
+              ) ? (resultItem.extracted_data.statement_summary as BankStatementSummary) : null;
+              const transactions = Array.isArray(resultItem?.extracted_data?.transactions)
+                ? (resultItem.extracted_data.transactions as unknown[])
+                : null;
 
               return (
                 <motion.div key={resultItem.request_id || index} className="result-card glass">
@@ -592,10 +705,24 @@ export const Uploader = () => {
                     </div>
                   )}
 
+                  {statementSummary && (
+                    <div style={{ padding: "1.25rem", borderRadius: "1rem", marginBottom: "1.5rem", border: "1px solid rgba(99, 102, 241, 0.18)", background: "rgba(99, 102, 241, 0.05)" }}>
+                      <h3 style={{ fontWeight: 700, marginBottom: "0.9rem" }}>Statement Summary</h3>
+                      {renderStatementSummary(statementSummary)}
+                    </div>
+                  )}
+
+                  {transactions && transactions.length > 0 && (
+                    <div style={{ padding: "1.25rem", borderRadius: "1rem", marginBottom: "1.5rem", border: "1px solid rgba(255, 255, 255, 0.08)", background: "rgba(255,255,255,0.03)" }}>
+                      <h3 style={{ fontWeight: 700, marginBottom: "0.9rem" }}>Transactions</h3>
+                      {renderValue(transactions, { preserveTableLayout: true })}
+                    </div>
+                  )}
+
                   <div className="extraction-table-container">
                     <table className="extraction-table">
                       <thead><tr><th>Field</th><th>Value</th></tr></thead>
-                      <tbody>{getFilteredData(resultItem).map(([k, v]) => <tr key={k}><td className="field-name-cell">{k.replace(/_/g, " ")}</td><td className="field-value-cell">{renderValue(v)}</td></tr>)}</tbody>
+                      <tbody>{getFilteredData(resultItem).map(([k, v]) => <tr key={k}><td className="field-name-cell">{k.replace(/_/g, " ")}</td><td className="field-value-cell">{renderFieldValue(k, v)}</td></tr>)}</tbody>
                     </table>
                   </div>
 

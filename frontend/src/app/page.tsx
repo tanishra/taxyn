@@ -112,7 +112,7 @@ export default function Home() {
       </section>
 
       {/* ALWAYS SHOW UPLOADER (LOGIN GUARD HANDLED INSIDE) */}
-      <div id="uploader" style={{ display: "flex", justifyContent: "center", paddingBottom: "3rem" }}>
+      <div id="uploader" style={{ display: "flex", justifyContent: "center", paddingBottom: "3rem", width: "100%", paddingInline: "0.5rem" }}>
         <Uploader />
       </div>
 

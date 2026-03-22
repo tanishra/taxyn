@@ -246,7 +246,10 @@
   color: var(--muted);
   font-weight: 600;
   text-transform: capitalize;
-  width: 30%;
+  width: auto;
+  min-width: 180px;
+  white-space: nowrap;
+  padding-right: 2rem;
 }
 
 .field-value-cell {
