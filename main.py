@@ -52,28 +52,10 @@ processing_processes_by_request_id: dict[str, multiprocessing.Process] = {}
 # ── Dependency Container ──────────────────────────────────
 class Container:
     def __init__(self):
-        self.repo = self._build_repository()
-
-        self.user_store = UserStore(self.repo)
-        self.schema_store = SchemaStore(self.repo)
-        self.correction_store = CorrectionStore(self.repo)
-        self.audit_store = AuditStore(self.repo)
-        self.job_store = ProcessingJobStore(self.repo)
-        self.document_store = DocumentStore(
-            self.repo,
-            storage_mode=settings.DOCUMENT_STORAGE_MODE,
-            storage_path=settings.DOCUMENT_STORAGE_PATH,
-        )
-
         self.serializer = ResponseSerializer()
         self.erp_exporter = ERPExporter()
-        self.hitl_queue = HITLQueue(self.repo)
-        self.tracer = Tracer(self.audit_store)
-        self.rate_limiter = RateLimiter(self.repo)
-        skill_factory = SkillFactory(correction_store=self.correction_store)
-        planner = Planner(skill_factory, self.schema_store)
-        self.agent_loop = AgentLoop(planner, self.serializer, self.hitl_queue, self.tracer)
-        self.rest_adapter = RestAdapter(self.schema_store)
+        self.repo = self._build_repository()
+        self._wire_repository(self.repo)
         self.splitter_tool = SplitterTool()
 
     def _build_repository(self):
@@ -99,6 +81,29 @@ class Container:
         except Exception as e:
             logger.error("container.repository_init_failed", error=str(e))
             return InMemoryRepository()
+
+    def _wire_repository(self, repo):
+        self.repo = repo
+        self.user_store = UserStore(repo)
+        self.schema_store = SchemaStore(repo)
+        self.correction_store = CorrectionStore(repo)
+        self.audit_store = AuditStore(repo)
+        self.job_store = ProcessingJobStore(repo)
+        self.document_store = DocumentStore(
+            repo,
+            storage_mode=settings.DOCUMENT_STORAGE_MODE,
+            storage_path=settings.DOCUMENT_STORAGE_PATH,
+        )
+        self.hitl_queue = HITLQueue(repo)
+        self.tracer = Tracer(self.audit_store)
+        self.rate_limiter = RateLimiter(repo)
+        skill_factory = SkillFactory(correction_store=self.correction_store)
+        planner = Planner(skill_factory, self.schema_store)
+        self.agent_loop = AgentLoop(planner, self.serializer, self.hitl_queue, self.tracer)
+        self.rest_adapter = RestAdapter(self.schema_store)
+
+    def replace_repository(self, repo):
+        self._wire_repository(repo)
 
 container = Container()
 
@@ -398,7 +403,19 @@ def _schedule_background_job(request_id: str, contexts: list[Context]) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if isinstance(container.repo, SQLRepository):
-        await container.repo.init_db()
+        try:
+            await container.repo.init_db()
+        except Exception as exc:
+            logger.error("sql_db.init_failed", error=str(exc))
+            try:
+                fallback_repo = SQLRepository("sqlite+aiosqlite:///./taxyn.db")
+                await fallback_repo.init_db()
+                container.replace_repository(fallback_repo)
+                logger.warning("sql_db.fell_back_to_sqlite")
+            except Exception as sqlite_exc:
+                logger.error("sqlite_db.init_failed", error=str(sqlite_exc))
+                container.replace_repository(InMemoryRepository())
+                logger.warning("repo.fell_back_to_in_memory")
     yield
 
 app = FastAPI(title="Taxyn API", lifespan=lifespan)
