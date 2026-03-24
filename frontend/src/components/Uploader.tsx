@@ -76,20 +76,38 @@ export const Uploader = () => {
   const [reviewTarget, setReviewTarget] = useState<ExtractionResult | null>(null);
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
   const cancelRequestedRef = useRef(false);
+  const uploadStartedAtRef = useRef<number | null>(null);
   const clampProgress = (value: number) => Math.min(100, Math.max(0, value));
   const progressPercent = Math.round(clampProgress(progress));
+  const getAutoProgressTarget = (elapsedMs: number) => {
+    if (elapsedMs <= 8000) {
+      return (elapsedMs / 8000) * 35;
+    }
+    if (elapsedMs <= 28000) {
+      return 35 + ((elapsedMs - 8000) / 20000) * 35;
+    }
+    if (elapsedMs <= 88000) {
+      return 70 + ((elapsedMs - 28000) / 60000) * 20;
+    }
+    return 90;
+  };
 
-  // Simulate progress
+  // Progress follows staged time-based targets and only reaches 100 on completion.
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (isUploading) {
-      setProgress(0);
+      if (!uploadStartedAtRef.current) {
+        uploadStartedAtRef.current = Date.now();
+      }
       interval = setInterval(() => {
         setProgress((prev) => {
-          if (prev >= 95) return prev;
-          return clampProgress(prev + Math.random() * 15);
+          const startedAt = uploadStartedAtRef.current ?? Date.now();
+          const target = getAutoProgressTarget(Date.now() - startedAt);
+          return clampProgress(Math.max(prev, target));
         });
-      }, 500);
+      }, 400);
+    } else {
+      uploadStartedAtRef.current = null;
     }
     return () => clearInterval(interval);
   }, [isUploading]);
@@ -109,12 +127,15 @@ export const Uploader = () => {
     }
 
     if (!file) return;
-    setIsUploading(true);
+    uploadStartedAtRef.current = Date.now();
+    setProgress(0);
     setError(null);
     setNotice(null);
     cancelRequestedRef.current = false;
     setResults([]);
     setResolvedRequestIds([]);
+    setActiveRequestId(null);
+    setIsUploading(true);
 
     const formData = new FormData();
     formData.append("file", file);
@@ -180,9 +201,6 @@ export const Uploader = () => {
         setProgress(0);
         setActiveRequestId(null);
         return;
-      }
-      if (payload?.status === "queued" || payload?.status === "processing") {
-        setProgress((prev) => (prev < 92 ? prev + 8 : prev));
       }
       await new Promise((resolve) => setTimeout(resolve, 1800));
     }
