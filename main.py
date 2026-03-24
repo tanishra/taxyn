@@ -6,7 +6,6 @@ Wires all components together using dependency injection.
 
 import structlog
 import asyncio
-import multiprocessing
 import uuid
 import random
 import io # Added for pypdf
@@ -47,7 +46,6 @@ structlog.configure(
 logger = structlog.get_logger(__name__)
 processing_tasks: set[asyncio.Task] = set()
 processing_tasks_by_request_id: dict[str, asyncio.Task] = {}
-processing_processes_by_request_id: dict[str, multiprocessing.Process] = {}
 
 # ── Dependency Container ──────────────────────────────────
 class Container:
@@ -245,12 +243,6 @@ async def _enforce_rate_limit(scope: str, actor: str, limit: int, window_seconds
 
 
 async def _collect_runtime_metrics() -> dict[str, int | str]:
-    stale_request_ids = [request_id for request_id, process in processing_processes_by_request_id.items() if not process.is_alive()]
-    for request_id in stale_request_ids:
-        process = processing_processes_by_request_id.pop(request_id, None)
-        if process is not None:
-            process.join(timeout=0.1)
-
     pending_reviews = await container.hitl_queue.get_pending()
     processing_jobs = await container.job_store.list_jobs()
     document_meta = await container.repo.get_by_tag("document_meta") if hasattr(container.repo, "get_by_tag") else []
@@ -292,7 +284,7 @@ async def _collect_runtime_metrics() -> dict[str, int | str]:
         "cancelled_jobs": cancelled_jobs,
         "document_meta_records": len(document_meta),
         "open_feedback": open_feedback,
-        "in_process_tasks": len(processing_tasks) + len(processing_processes_by_request_id),
+        "in_process_tasks": len(processing_tasks),
     }
 
 
@@ -384,20 +376,27 @@ async def _process_job(request_id: str, contexts: list[Context]) -> None:
                 "error": str(e),
             },
         )
-
-
-def _run_job_process(request_id: str, contexts: list[Context]) -> None:
-    asyncio.run(_process_job(request_id, contexts))
-
-
 def _schedule_background_job(request_id: str, contexts: list[Context]) -> None:
-    process = multiprocessing.Process(
-        target=_run_job_process,
-        args=(request_id, contexts),
-        daemon=True,
-    )
-    process.start()
-    processing_processes_by_request_id[request_id] = process
+    async def _run_and_cleanup() -> None:
+        try:
+            await _process_job(request_id, contexts)
+        finally:
+            processing_tasks_by_request_id.pop(request_id, None)
+
+    task = asyncio.create_task(_run_and_cleanup(), name=f"taxyn-job-{request_id}")
+    processing_tasks.add(task)
+    processing_tasks_by_request_id[request_id] = task
+
+    def _cleanup_task(completed_task: asyncio.Task) -> None:
+        processing_tasks.discard(completed_task)
+        try:
+            completed_task.result()
+        except asyncio.CancelledError:
+            logger.info("background_processing.task_cancelled", request_id=request_id)
+        except Exception as exc:
+            logger.error("background_processing.task_failed", request_id=request_id, error=str(exc), exc_info=True)
+
+    task.add_done_callback(_cleanup_task)
 
 # ── App lifecycle ──────────────────────────────────────────
 @asynccontextmanager
@@ -1005,21 +1004,6 @@ async def cancel_extract(request_id: str, user: User = Depends(get_current_user)
     status = str(job.get("status", "")).lower()
     if status in {"completed", "failed", "cancelled"}:
         return {"status": status, "message": f"Request already {status}"}
-
-    process = processing_processes_by_request_id.get(request_id)
-    if process and process.is_alive():
-        process.terminate()
-        process.join(timeout=1.0)
-        processing_processes_by_request_id.pop(request_id, None)
-        await container.job_store.update_job(
-            request_id,
-            {
-                "status": "cancelled",
-                "completed_at": datetime.utcnow().isoformat(),
-                "error": "Processing cancelled by user",
-            },
-        )
-        return {"status": "cancelled", "message": "Processing cancelled"}
 
     task = processing_tasks_by_request_id.get(request_id)
     if task and not task.done():
