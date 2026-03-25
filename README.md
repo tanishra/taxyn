@@ -7,7 +7,6 @@
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o--mini-412991?style=for-the-badge&logo=openai&logoColor=white)](https://openai.com)
-[![Docling](https://img.shields.io/badge/IBM-Docling-054ADA?style=for-the-badge&logo=ibm&logoColor=white)](https://github.com/DS4SD/docling)
 [![Instructor](https://img.shields.io/badge/Instructor-Structured_Output-E535AB?style=for-the-badge)](https://github.com/jxnl/instructor)
 [![License](https://img.shields.io/badge/License-MIT-FF6B6B?style=for-the-badge)](LICENSE)
 
@@ -27,7 +26,7 @@
 Taxyn is an AI-powered platform that automates Indian financial document audits:
 
 1. **Secure Identity:** Email verification (OTP), Google Auth, tenant-scoped document access, and app-level rate limiting protect user workflows.
-2. **Deep Extraction:** Pulls multi-line tables from PDFs using IBM Docling with schema-driven extraction per document type.
+2. **Hybrid Extraction:** Uses fast `pypdf` extraction for searchable PDFs and Google Document AI for weak or complex documents.
 3. **Smart Reconciliation:** Matches source documents against Government GSTR-2A portal Excel files with deterministic normalization and mismatch review signals.
 4. **Deterministic Audit:** Hardcoded validation for GSTIN, PAN, TAN, IFSC, date integrity, tax math, and bank balance consistency to eliminate AI hallucinations.
 5. **Continuous Learning:** Remembers every human correction, improving vendor-specific accuracy over time.
@@ -62,7 +61,7 @@ graph LR
     end
 
     subgraph TOOLS["TOOLS"]
-        T1["ExtractorTool\nDocling"]
+        T1["ExtractorTool\npypdf + Google Document AI"]
         T2["ParserTool\nGPT-4o-mini + Instructor"]
         T3["ValidatorTool\nDeterministic Compliance"]
         T4["PortalParser\nPandas Excel Engine"]
@@ -108,7 +107,7 @@ pip install -r requirements.txt
 # 2. Configure Environment
 cp .env.example .env
 # Update .env with DATABASE_URL (Neon Postgres recommended), OPENAI_API_KEY,
-# HUGGINGFACE_TOKEN, SMTP settings, SUPPORT_EMAIL, GOOGLE_CLIENT_ID,
+# Google Document AI settings, SMTP settings, SUPPORT_EMAIL, GOOGLE_CLIENT_ID,
 # CORS_ORIGINS, DOCUMENT_STORAGE_MODE, DOCUMENT_STORAGE_PATH, and ENABLE_ASYNC_PROCESSING
 
 # 2b. Create the local document storage directory if using filesystem mode
