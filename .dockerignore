@@ -8,6 +8,7 @@ __pycache__
 .Python
 .env
 .env.*
+secrets/
 frontend/.next
 frontend/node_modules
 node_modules
@@ -18,4 +19,3 @@ node_modules
 bank_statement.pdf
 sample_invoice.pdf
 ROADMAP.md
-

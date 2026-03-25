@@ -88,7 +88,7 @@ with col2:
     st.markdown("**📊 Extraction Result**")
 
     if extract_btn and uploaded_file:
-        st.info("⏳ First run: 2–3 min (Docling model download). Next runs: ~5 sec.")
+        st.info("⏳ Extraction may take longer for complex PDFs when Google Document AI fallback is used.")
         with st.spinner("Extracting → Parsing → Validating..."):
             try:
                 start = time.time()
@@ -158,7 +158,7 @@ with col2:
 st.divider()
 st.markdown("**🔄 Pipeline**")
 steps = [
-    ("01", "ExtractorTool", "Docling reads PDF"),
+    ("01", "ExtractorTool", "pypdf first, Google Document AI fallback"),
     ("02", "ParserTool", "GPT-4o-mini extracts fields"),
     ("03", "ValidatorTool", "GST/PAN/GSTIN checks"),
     ("04", "ConfidenceScorer", "Scores each field 0→1"),

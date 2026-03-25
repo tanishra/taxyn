@@ -32,6 +32,7 @@ data/
 .env
 .env.local
 token.json
+secrets/
 
 # ─── System / IDE ──────────────────────────────────────────
 .DS_Store
@@ -50,7 +51,7 @@ Explanation.md
 ROADMAP.md
 bank_statement.pdf
 taxyn.pem
-docker-compose.yml
 FEATURES.md
 FUTURE.md
 TBD.md
+app
