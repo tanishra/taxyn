@@ -28,6 +28,8 @@ class BankStatementSkill(BaseSkill):
         for tool in self._tools:
             result = await tool.execute(context)
             context.add_tool_result(result)
+            if not result.success and not isinstance(tool, (ValidatorTool, ConfidenceScorerTool)):
+                raise RuntimeError(f"{tool.name} failed: {result.error}")
         return {"skill": self.skill_name, "extracted_data": context.extracted_data}
 
 
@@ -43,4 +45,6 @@ class TDSSkill(BaseSkill):
         for tool in self._tools:
             result = await tool.execute(context)
             context.add_tool_result(result)
+            if not result.success and not isinstance(tool, (ValidatorTool, ConfidenceScorerTool)):
+                raise RuntimeError(f"{tool.name} failed: {result.error}")
         return {"skill": self.skill_name, "extracted_data": context.extracted_data}
