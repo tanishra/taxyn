@@ -137,6 +137,42 @@ streamlit run app.py
 # - QuickBooks CSV
 ```
 
+## Extraction Strategy
+
+Taxyn uses a hybrid extraction flow:
+
+- **Searchable PDFs:** `pypdf` is used first for fast local text extraction.
+- **Weak, scanned, or complex PDFs:** Google Document AI is used as the fallback OCR/parser layer.
+- **Validation stays local:** deterministic validation, reconciliation, review routing, and ERP export remain inside Taxyn.
+
+This keeps normal PDFs fast and cheap while still supporting harder real-world compliance documents.
+
+## Google Document AI Setup
+
+At minimum, configure these values in `.env`:
+
+```env
+GOOGLE_DOCUMENT_AI_PROJECT_ID=your-project-id
+GOOGLE_DOCUMENT_AI_LOCATION=us
+GOOGLE_DOCUMENT_AI_SERVICE_ACCOUNT_PATH=./secrets/gcp-docai.json
+GOOGLE_DOCUMENT_AI_PROCESSOR_OCR=
+GOOGLE_DOCUMENT_AI_PROCESSOR_FORM=
+GOOGLE_DOCUMENT_AI_PROCESSOR_INVOICE=
+GOOGLE_DOCUMENT_AI_PROCESSOR_BANK_STATEMENT=
+```
+
+Recommended local setup:
+
+1. Create a `secrets/` folder in the project root.
+2. Place your Google service account JSON there as `secrets/gcp-docai.json`.
+3. Keep `GOOGLE_DOCUMENT_AI_SERVICE_ACCOUNT_PATH=./secrets/gcp-docai.json` in `.env`.
+4. Configure at least one working processor:
+   - `INVOICE` for invoices
+   - `BANK_STATEMENT` for bank statements
+   - `FORM` or `OCR` as generic fallback processors
+
+The backend also logs extractor readiness on startup, so you can verify whether the Google Document AI configuration is being detected before uploading a document.
+
 ---
 
 ## Key Features
@@ -156,9 +192,18 @@ streamlit run app.py
 Taxyn is specialized for the unique layouts of Indian compliance documentation:
 
 - **Invoices:** B2B and B2C invoices with multi-line item table extraction, optional QR authenticity checks, and ERP-ready export output.
-- **Bank Statements:** Full ledger processing with transaction extraction plus IFSC and balance consistency checks.
+- **Bank Statements:** Structured transaction extraction and enrichment with IFSC and balance consistency checks.
 - **GST Returns & Reconciliation:** Parses GSTR summaries and supports portal Excel-assisted reconciliation workflows with partial-match review states.
 - **TDS Certificates:** Extracts and validates core Form 16/16A identifiers including PAN and TAN.
+
+---
+
+## Troubleshooting
+
+- **Google service account not found:** Ensure the JSON file exists at the configured path, usually `./secrets/gcp-docai.json` locally or `/app/secrets/gcp-docai.json` in Docker.
+- **Google Document AI returns `403 Forbidden`:** Check IAM permissions, billing, API enablement, and confirm the processor belongs to the same project and region configured in `.env`.
+- **Searchable PDFs fail unexpectedly:** Confirm `pypdf` is installed and the PDF actually contains a text layer rather than only scanned images.
+- **Complex/scanned PDFs fail:** Verify at least one Google processor is configured and accessible. The backend can fall back across processor types, but it still needs valid Google credentials and permissions.
 
 ---
 
@@ -169,11 +214,3 @@ Taxyn is specialized for the unique layouts of Indian compliance documentation:
 - **Risk Scoring:** Automated vendor fraud detection based on GST registration status.
 - **Mobile App:** Rapid capture of physical bills via smartphone camera.
 - **Contribute:** PRs welcome! Help us make Taxyn better.
-
----
-
-<div align="center">
-
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0f0c29&height=100&section=footer" width="100%"/>
-
-</div>
