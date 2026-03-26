@@ -6,6 +6,7 @@ Wires all components together using dependency injection.
 
 import structlog
 import asyncio
+import os
 import uuid
 import random
 import io # Added for pypdf
@@ -121,6 +122,66 @@ ADMIN_EMAIL_SET = {email.strip().lower() for email in (settings.ADMIN_EMAILS or 
 def _is_admin_user(user: User) -> bool:
     user_email = (getattr(user, "email", "") or "").lower()
     return bool(getattr(user, "is_admin", False)) or (user_email in ADMIN_EMAIL_SET)
+
+
+def _log_extraction_readiness() -> None:
+    try:
+        import pypdf  # noqa: F401
+        lightweight_ready = True
+    except Exception:
+        lightweight_ready = False
+
+    configured_service_account_path = (settings.GOOGLE_DOCUMENT_AI_SERVICE_ACCOUNT_PATH or "").strip()
+    service_account_candidates = [
+        configured_service_account_path,
+        "./secrets/gcp-docai.json",
+        "/app/secrets/gcp-docai.json",
+    ]
+    service_account_path_found = next(
+        (path for path in service_account_candidates if path and os.path.exists(path)),
+        "",
+    )
+    service_account_configured = bool((settings.GOOGLE_DOCUMENT_AI_SERVICE_ACCOUNT_JSON or "").strip() or service_account_path_found)
+
+    processor_map = {
+        "ocr": settings.GOOGLE_DOCUMENT_AI_PROCESSOR_OCR,
+        "form": settings.GOOGLE_DOCUMENT_AI_PROCESSOR_FORM,
+        "invoice": settings.GOOGLE_DOCUMENT_AI_PROCESSOR_INVOICE,
+        "bank_statement": settings.GOOGLE_DOCUMENT_AI_PROCESSOR_BANK_STATEMENT,
+        "gst_return": settings.GOOGLE_DOCUMENT_AI_PROCESSOR_GST_RETURN,
+        "tds_certificate": settings.GOOGLE_DOCUMENT_AI_PROCESSOR_TDS_CERTIFICATE,
+        "reconciliation": settings.GOOGLE_DOCUMENT_AI_PROCESSOR_RECONCILIATION,
+    }
+    configured_processors = sorted([name for name, value in processor_map.items() if (value or "").strip()])
+
+    google_ready = all(
+        [
+            (settings.GOOGLE_DOCUMENT_AI_PROJECT_ID or "").strip(),
+            (settings.GOOGLE_DOCUMENT_AI_LOCATION or "").strip(),
+            service_account_configured or (settings.GOOGLE_DOCUMENT_AI_ACCESS_TOKEN or "").strip(),
+            configured_processors,
+        ]
+    )
+
+    logger.info(
+        "extraction.readiness",
+        lightweight_ready=lightweight_ready,
+        google_ready=bool(google_ready),
+        google_project_id=bool((settings.GOOGLE_DOCUMENT_AI_PROJECT_ID or "").strip()),
+        google_location=(settings.GOOGLE_DOCUMENT_AI_LOCATION or "").strip(),
+        service_account_found=bool(service_account_path_found),
+        service_account_path=service_account_path_found or configured_service_account_path,
+        access_token_configured=bool((settings.GOOGLE_DOCUMENT_AI_ACCESS_TOKEN or "").strip()),
+        configured_processors=configured_processors,
+    )
+
+    if not lightweight_ready:
+        logger.warning("extraction.lightweight_unavailable", dependency="pypdf")
+    if not google_ready:
+        logger.warning(
+            "extraction.google_not_ready",
+            reason="Missing project/location/credentials/processors",
+        )
 
 # ── Auth Dependency ──────────────────────────────────────
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
@@ -401,6 +462,7 @@ def _schedule_background_job(request_id: str, contexts: list[Context]) -> None:
 # ── App lifecycle ──────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _log_extraction_readiness()
     if isinstance(container.repo, SQLRepository):
         try:
             await container.repo.init_db()
