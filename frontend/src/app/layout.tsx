@@ -17,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Taxyn | AI-Powered Indian Compliance Document Automation",
-  description: "Extract structured data from Invoices, GST Returns, and Bank Statements with 99% accuracy.",
+  title: "Taxyn",
+  description: "AI-Powered Indian Compliance Document Automation. Extracts structured data from invoices, GST returns, and bank statements with AI-assisted validation and review workflows.",
 };
 
 // Load from environment variable (ensure it starts with NEXT_PUBLIC_ in your frontend/.env)
