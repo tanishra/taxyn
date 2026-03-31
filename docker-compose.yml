@@ -10,7 +10,7 @@ services:
     depends_on:
       - redis
     volumes:
-      - ./secrets:/app/secrets:ro
+      - ./app/secrets:/app/secrets:ro
     restart: always
 
   redis:
