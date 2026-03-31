@@ -26,7 +26,7 @@
 Taxyn is an AI-powered platform that automates Indian financial document audits:
 
 1. **Secure Identity:** Email verification (OTP), Google Auth, tenant-scoped document access, and app-level rate limiting protect user workflows.
-2. **Hybrid Extraction:** Uses fast `pypdf` extraction for searchable PDFs and Google Document AI for weak or complex documents.
+2. **Hybrid Extraction:** Uses `pypdf` for searchable PDFs and Google Document AI for scanned, weak, or complex documents.
 3. **Smart Reconciliation:** Matches source documents against Government GSTR-2A portal Excel files with deterministic normalization and mismatch review signals.
 4. **Deterministic Audit:** Hardcoded validation for GSTIN, PAN, TAN, IFSC, date integrity, tax math, and bank balance consistency to eliminate AI hallucinations.
 5. **Continuous Learning:** Remembers every human correction, improving vendor-specific accuracy over time.
@@ -171,7 +171,22 @@ Recommended local setup:
    - `BANK_STATEMENT` for bank statements
    - `FORM` or `OCR` as generic fallback processors
 
+Notes:
+
+- For local development, `./secrets/gcp-docai.json` is the recommended path.
+- For Docker/server deployments, the service account file is typically mounted at `/app/secrets/gcp-docai.json`.
+- The Google service account should have the `Document AI API User` role so it can call `documentai.processors.processOnline`.
+- Processor availability can vary by account, region, or project setup. If a specialized processor is unavailable, `FORM` or `OCR` can be used as fallback.
+
 The backend also logs extractor readiness on startup, so you can verify whether the Google Document AI configuration is being detected before uploading a document.
+
+## Current Extraction Flow
+
+```text
+Searchable PDF -> pypdf
+Weak/scanned/complex PDF -> Google Document AI
+Structured text -> LLM parsing -> validation -> reconciliation/review -> export
+```
 
 ---
 
@@ -202,6 +217,7 @@ Taxyn is specialized for the unique layouts of Indian compliance documentation:
 
 - **Google service account not found:** Ensure the JSON file exists at the configured path, usually `./secrets/gcp-docai.json` locally or `/app/secrets/gcp-docai.json` in Docker.
 - **Google Document AI returns `403 Forbidden`:** Check IAM permissions, billing, API enablement, and confirm the processor belongs to the same project and region configured in `.env`.
+- **Google Document AI permission denied:** Ensure the service account has the `Document AI API User` role and that the same service account JSON is the one being used by the app.
 - **Searchable PDFs fail unexpectedly:** Confirm `pypdf` is installed and the PDF actually contains a text layer rather than only scanned images.
 - **Complex/scanned PDFs fail:** Verify at least one Google processor is configured and accessible. The backend can fall back across processor types, but it still needs valid Google credentials and permissions.
 
