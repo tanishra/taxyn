@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { ShieldCheck, User as UserIcon, LogOut, History, LayoutDashboard, Shield } from "lucide-react";
 import { useAuth } from "./AuthContext";
 import Link from "next/link";
@@ -8,9 +8,20 @@ import { ContactSupportButton } from "./ContactSupportButton";
 
 export const Navbar = () => {
   const { user, logout } = useAuth();
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 12);
+    };
+
+    handleScroll();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   return (
-    <nav className="navbar glass">
+    <nav className={`navbar ${isScrolled ? "navbar-scrolled" : ""}`}>
       <Link href="/" className="logo">
         <div className="logo-icon">
           <ShieldCheck size={20} color="white" />
