@@ -4,7 +4,7 @@ import React from "react";
 import { Navbar } from "@/components/Navbar";
 import { Uploader } from "@/components/Uploader";
 import { motion } from "framer-motion";
-import { ShieldCheck, Zap, Database, CheckCircle, ArrowRight, Building2, Landmark, Briefcase, FileCheck2 } from "lucide-react";
+import { ShieldCheck, Zap, Database, CheckCircle, ArrowRight, Building2, Landmark, Briefcase, FileCheck2 , AlertTriangle } from "lucide-react";
 import { useAuth } from "@/components/AuthContext";
 import Link from "next/link";
 
@@ -19,8 +19,32 @@ export default function Home() {
     <main>
       <Navbar />
       
+
+
       {/* ALWAYS SHOW HERO SECTION */}
       <div className="hero" style={{ minHeight: "auto", paddingTop: "10rem", paddingBottom: "2rem" }}>
+
+        <div style={{
+          backgroundColor: "rgba(245, 158, 11, 0.1)",
+          border: "1px solid rgba(245, 158, 11, 0.2)",
+          borderRadius: "8px",
+          color: "var(--warning)",
+          padding: "0.75rem 1rem",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "0.75rem",
+          fontSize: "0.9rem",
+          fontWeight: 500,
+          marginBottom: "2rem",
+          width: "92%",
+          maxWidth: "800px",
+          margin: "0 auto 2rem auto"
+        }}>
+          <AlertTriangle size={18} />
+          <span>We are currently experiencing technical difficulties. Normal service will resume shortly.</span>
+        </div>
+
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="badge glass">
           <Zap size={14} /> AI-Powered Compliance Automation
         </motion.div>
